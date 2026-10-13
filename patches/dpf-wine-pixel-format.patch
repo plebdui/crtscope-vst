@@ -1,0 +1,25 @@
+diff --git i/dgl/src/WindowPrivateData.cpp w/dgl/src/WindowPrivateData.cpp
+index d7a3c93..ba46b6c 100644
+--- i/dgl/src/WindowPrivateData.cpp
++++ w/dgl/src/WindowPrivateData.cpp
+@@ -313,10 +313,12 @@ bool Window::PrivateData::initPost()
+         return false;
+ 
+     // create view now, as a few methods we allow devs to use require it
+-    if (puglRealize(view) != PUGL_SUCCESS)
++    const PuglStatus realizeStatus = puglRealize(view);
++    if (realizeStatus != PUGL_SUCCESS)
+     {
+         view = nullptr;
+-        d_stderr2("Failed to realize Pugl view, everything will fail!");
++        d_stderr2("Failed to realize Pugl view (%s, error %d), everything will fail!",
++                  puglStrerror(realizeStatus), (int)realizeStatus);
+         return false;
+     }
+ 
+diff --git i/dgl/src/pugl-upstream w/dgl/src/pugl-upstream
+--- i/dgl/src/pugl-upstream
++++ w/dgl/src/pugl-upstream
+@@ -1 +1 @@
+-Subproject commit 5e2621d714ddf1cb0f86e852f8ba5dffe04aa3a3
++Subproject commit 5e2621d714ddf1cb0f86e852f8ba5dffe04aa3a3-dirty
