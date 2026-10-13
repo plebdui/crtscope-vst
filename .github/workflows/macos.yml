@@ -1,0 +1,49 @@
+# Builds the Mac plugin (AU for GarageBand/Logic, plus VST3 and CLAP) as one
+# universal binary for Intel and Apple Silicon, then checks the AU with
+# Apple's auval, the same validator Logic runs.
+name: macOS
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    env:
+      CFLAGS: -arch x86_64 -arch arm64 -mmacosx-version-min=10.15
+      CXXFLAGS: -arch x86_64 -arch arm64 -mmacosx-version-min=10.15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: DPF (pinned) with the patch
+        run: |
+          git clone https://github.com/DISTRHO/DPF.git dpf
+          git -C dpf checkout 4238e1c7f0351bbe488d79f0899c540543ac7583
+          git -C dpf submodule update --init --recursive
+          git -C dpf apply ../patches/dpf-wine-pixel-format.patch
+
+      - name: Build
+        run: |
+          make -C dpf/dgl opengl -j3
+          make -j3
+          codesign --force --deep -s - bin/CRT-Scope.component bin/CRT-Scope.vst3 bin/CRT-Scope.clap
+          lipo -info bin/CRT-Scope.component/Contents/MacOS/CRT-Scope
+
+      - name: auval (Apple's Audio Unit validator)
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R bin/CRT-Scope.component ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          auval -a | grep -i "crts" || true
+          auval -strict -v aufx CrtS Pleb
+
+      - name: Zip
+        run: |
+          cd bin
+          zip -qry ../CRT-Scope-mac.zip CRT-Scope.component CRT-Scope.vst3 CRT-Scope.clap
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CRT-Scope-mac
+          path: CRT-Scope-mac.zip

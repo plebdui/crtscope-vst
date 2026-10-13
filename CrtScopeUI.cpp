@@ -12,6 +12,8 @@
 #ifdef _WIN32
 #include <ole2.h>
 #include <shellapi.h>
+#elif defined(__APPLE__)
+#include "MacDrop.h"
 #endif
 
 #include <chrono>
@@ -165,6 +167,9 @@ public:
             fDrop->Release();
         if (fOleInit)
             OleUninitialize();
+#elif defined(__APPLE__)
+        if (fDropView)
+            crtMacDropUnregister(fDropView);
 #endif
     }
 
@@ -356,6 +361,9 @@ private:
     DropTarget* fDrop = nullptr;
     HWND fDropHwnd = nullptr;
     bool fOleInit = false, fDropTried = false;
+#elif defined(__APPLE__)
+    void* fDropView = nullptr;
+    bool fDropTried = false;
 #endif
 
     void registerDrop()
@@ -373,6 +381,14 @@ private:
             fDropHwnd = hwnd;
         else
             std::fprintf(stderr, "CRT Scope: drag and drop unavailable\n");
+#elif defined(__APPLE__)
+        if (fDropTried)
+            return;
+        fDropTried = true;
+        fDropView = (void*)getWindow().getNativeWindowHandle();
+        crtMacDropRegister(fDropView, [](void* ctx, const char* path) {
+            static_cast<CrtScopeUI*>(ctx)->pickFile(path);
+        }, this);
 #endif
     }
 
