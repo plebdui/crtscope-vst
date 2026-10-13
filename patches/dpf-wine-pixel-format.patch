@@ -17,9 +17,34 @@ index d7a3c93..ba46b6c 100644
          return false;
      }
  
-diff --git i/dgl/src/pugl-upstream w/dgl/src/pugl-upstream
---- i/dgl/src/pugl-upstream
-+++ w/dgl/src/pugl-upstream
-@@ -1 +1 @@
--Subproject commit 5e2621d714ddf1cb0f86e852f8ba5dffe04aa3a3
-+Subproject commit 5e2621d714ddf1cb0f86e852f8ba5dffe04aa3a3-dirty
+Submodule dgl/src/pugl-upstream contains modified content
+diff --git i/dgl/src/pugl-upstream/src/win_gl.c w/dgl/src/pugl-upstream/src/win_gl.c
+index 4f33e36..fdf3275 100644
+--- i/dgl/src/pugl-upstream/src/win_gl.c
++++ w/dgl/src/pugl-upstream/src/win_gl.c
+@@ -171,16 +171,17 @@ puglWinGlConfigure(PuglView* view)
+   wglMakeCurrent(fakeWin.hdc, fakeRc);
+   surface->procs = puglWinGlGetProcs();
+ 
+-  if (surface->procs.wglChoosePixelFormat) {
++  UINT numFormats = 0;
++  if (surface->procs.wglChoosePixelFormat &&
++      surface->procs.wglChoosePixelFormat(
++        fakeWin.hdc, pixelAttrs, NULL, 1U, &impl->pfId, &numFormats) &&
++      numFormats > 0 && impl->pfId > 0) {
+     // Choose pixel format based on attributes
+-    UINT numFormats = 0;
+-    if (!surface->procs.wglChoosePixelFormat(
+-          fakeWin.hdc, pixelAttrs, NULL, 1U, &impl->pfId, &numFormats)) {
+-      return puglWinError(&fakeWin, PUGL_SET_FORMAT_FAILED);
+-    }
+-
+-    DescribePixelFormat(impl->hdc, impl->pfId, sizeof(impl->pfd), &impl->pfd);
++    // (crt-scope fix: describe it from the fake window, the real one doesn't exist yet)
++    DescribePixelFormat(fakeWin.hdc, impl->pfId, sizeof(impl->pfd), &impl->pfd);
+   } else {
++    // crt-scope fix: Wine can report success with zero matching formats;
++    // fall back to the basic format, which works, instead of using format 0
+     // Modern extensions not available, use basic pixel format
+     impl->pfd  = fakePfd;
+     impl->pfId = fakePfId;
