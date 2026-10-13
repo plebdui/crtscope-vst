@@ -4,12 +4,23 @@ The [crtscope](https://github.com/plebdui/crtscope) tube as a plugin: put it on 
 mixer track and its window draws that track's sound as a 1960s CRT oscilloscope.
 The audio passes through untouched.
 
+<p align="center">
+  <img src="screenshots/modes.gif" width="100%" alt="XY, goniometer and waveform modes moving on the tube">
+</p>
+
+<p align="center">
+  <img src="screenshots/window-xy.png" width="45%" alt="The plugin window in XY mode, with its row of controls">
+  <img src="screenshots/window-gonio.png" width="45%" alt="The plugin window in goniometer mode">
+</p>
+
 - **Modes:** XY (Lissajous), goniometer, and a triggered waveform
 - **Phosphors:** P7 radar, P1 green, P12 orange, P31, plus 15 Apple II colours
 - **Controls** along the bottom: left-click or scroll up = next / more,
   right-click or scroll down = back / less. All of them are automatable.
 
 Image/video tracing and the clock from the terminal version aren't in the plugin.
+
+![P7 radar, P1 green, P12 orange, P31, and Apple II blue, purple, red and white](screenshots/phosphors.png)
 
 ## Install in FL Studio
 
