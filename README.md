@@ -1,4 +1,4 @@
-# CRT Scope (VST3 / CLAP)
+# CRT Scope (VST3 / AU / CLAP)
 
 The [crtscope](https://github.com/plebdui/crtscope) tube as a plugin: put it on a
 mixer track and its window draws that track's sound as a 1960s CRT oscilloscope.
@@ -48,6 +48,24 @@ with Wine: `~/.wine/drive_c/Program Files/Common Files/VST3`), then in FL:
 **Options → Manage plugins → Find more plugins**, and add **CRT Scope** to a
 mixer track.
 
+## Install on Mac (GarageBand / Logic)
+
+Download `CRT-Scope-mac.zip` from
+[Releases](https://github.com/plebdui/crtscope-vst/releases/latest) (one build for
+Intel and Apple Silicon), unzip it, then in Terminal:
+
+```sh
+cd ~/Downloads
+cp -R CRT-Scope.component ~/Library/Audio/Plug-Ins/Components/
+cp -R CRT-Scope.vst3 ~/Library/Audio/Plug-Ins/VST3/        # optional, for VST3 hosts
+xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/CRT-Scope.component ~/Library/Audio/Plug-Ins/VST3/CRT-Scope.vst3
+```
+
+The plugin isn't signed with a paid Apple developer ID, so without the `xattr`
+line macOS blocks it. Restart GarageBand or Logic. In a track's **Plug-ins**
+slot it's under **Audio Units → plebdui → CRT Scope**. Drag pictures from
+Finder onto the window, or click the tube in IMAGE mode.
+
 ## Build (Windows plugin, from Linux)
 
 Needs the mingw-w64 cross compiler (`x86_64-w64-mingw32-g++`).
@@ -65,6 +83,11 @@ make WINDOWS=true CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++
 The patch fixes the plugin window failing to open under Wine: Pugl asked for a
 pixel format with wglChoosePixelFormatARB, Wine answered "success, 0 formats",
 and Pugl used format 0. It now falls back to the basic format that works.
+
+The Mac build runs on GitHub Actions (`.github/workflows/macos.yml`): a
+universal AU + VST3 + CLAP, checked with Apple's `auval -strict`, then
+`tests/mac_auhost.mm` opens the window the way Logic does and the plugin saves
+snapshots of it.
 
 ## Tests
 
