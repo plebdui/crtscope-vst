@@ -63,7 +63,7 @@ public:
             --held;
         }
         notes[held] = note;
-        vels[held] = 0.5f * velocity / 127.0f;  // full velocity peaks at -6 dB
+        vels[held] = kMaxLevel * velocity / 127.0f;
         ++held;
     }
     void noteOff(int note)
@@ -94,7 +94,8 @@ private:
         const float gateDown = 1.0f - std::exp(-1.0f / (0.12f * sampleRate));
         for (uint32_t i = 0; i < n; ++i) {
             track(l[i], r[i], sampleRate);
-            float level = env;
+            // as loud on average as the input, peaks kept just under full scale
+            float level = std::min(std::sqrt(meanSq) / shapeRms, kMaxLevel);
             if (midi) {
                 const float want = held ? vels[held - 1] : 0.0f;
                 if (held) {
@@ -142,6 +143,10 @@ private:
         for (int k = 0; k < PictureMod::kN; ++k)
             m = std::max({m, std::fabs(X[k] - midX), std::fabs(Y[k] - midY)});
         fitScale = 1.0f / m;
+        float e = 0;
+        for (int k = 0; k < PictureMod::kN; ++k)
+            e += (X[k] - midX) * (X[k] - midX) + (Y[k] - midY) * (Y[k] - midY);
+        shapeRms = std::max(std::sqrt(e / (2 * PictureMod::kN)) * fitScale, 0.05f);
     }
 
     // Loudness and pitch of the input. The pitch is found a few dozen times a
@@ -149,16 +154,16 @@ private:
     // noise it holds the last one.
     void track(float l, float r, float sampleRate)
     {
-        const float a = std::max(std::fabs(l), std::fabs(r));
         if (sampleRate != rate) {
             rate = sampleRate;
             decim = std::max(1, (int)std::lround(sampleRate / 12000.0f));
-            attack = 1.0f - std::exp(-1.0f / (0.002f * sampleRate));
-            release = 1.0f - std::exp(-1.0f / (0.15f * sampleRate));
+            attack = 1.0f - std::exp(-1.0f / (0.03f * sampleRate));
+            release = 1.0f - std::exp(-1.0f / (0.3f * sampleRate));
             fill = acc = 0;
             count = 0;
         }
-        env += (a - env) * (a > env ? attack : release);
+        const float sq = 0.5f * (l * l + r * r);
+        meanSq += (sq - meanSq) * (sq > meanSq ? attack : release);
         acc += 0.5f * (l + r);
         if (++count < decim)
             return;
@@ -214,7 +219,7 @@ private:
     static constexpr int kBuf = 1024, kWin = 512, kHop = 256;
     float buf[kBuf] = {}, cmnd[kBuf] = {};
     int fill = 0, count = 0, decim = 1;
-    float acc = 0, rate = 0, attack = 1, release = 1, env = 0;
+    float acc = 0, rate = 0, attack = 1, release = 1, meanSq = 0;
     float target = 110, freq = 110, phase = 0;
     float dcInX = 0, dcOutX = 0, dcInY = 0, dcOutY = 0;
     static constexpr int kMaxHeld = 16;
@@ -222,7 +227,8 @@ private:
     float vels[kMaxHeld] = {}, gate = 0, noteTarget = 110;
     bool midi = false;
     const float* lastX = nullptr;
-    float midX = 0, midY = 0, fitScale = 1.25f;
+    float midX = 0, midY = 0, fitScale = 1.25f, shapeRms = 0.5f;
+    static constexpr float kMaxLevel = 0.9f;  // about -1 dB
     double t = 0;
 };
 

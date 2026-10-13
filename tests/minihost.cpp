@@ -746,7 +746,7 @@ int main(int argc, char** argv)
         const float released = gPeak;
         std::printf("MIDI switch: param %d -> %.3f; output peak no note %.3f, note held %.3f, released %.3f\n",
                     gLastParam.load(), gLastValue.load(), quiet, playing, released);
-        dropped = dropped && midiOn && quiet < 0.01f && playing > 0.2f && playing < 0.6f && released < 0.01f;  // full velocity peaks at -6 dB
+        dropped = dropped && midiOn && quiet < 0.01f && playing > 0.8f && playing <= 0.95f && released < 0.01f;  // full velocity peaks at about -1 dB
 
         // ---- drop a second picture (argv[3], or the same one again): it should replace the first
         const char* second = argc > 3 ? argv[3] : argv[2];

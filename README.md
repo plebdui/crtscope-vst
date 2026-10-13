@@ -26,11 +26,13 @@ The audio passes through untouched, unless you turn on FLAWS or load a picture.
 - **WET** (0-100%): how much of the flaws and the picture reach the sound
 - **SHAPE** (0-100%): plays the picture or equation *as* sound, like
   oscilloscope music (left = x, right = y). Its pitch follows the note in the
-  incoming audio and its level follows the input's loudness. 0% = only your
+  incoming audio and it plays about as loud as the input on average (peaks kept
+  just under full scale). 0% = only your
   input, 100% = only the shape. Curves with several loops (a 3:2 Lissajous,
   a rose) sound in harmonics above the tracked note.
 - **MIDI** switch: SHAPE follows MIDI notes instead of the input, like a
-  synth. The last held note sets the pitch, velocity the level, and the shape
+  synth. The last held note sets the pitch, velocity the level (full velocity
+  peaks just under full scale), and the shape
   goes quiet when you let go. In FL, route a MIDI out or a piano roll channel
   to the plugin. On Mac, use **CRT Scope MIDI** in Logic (under MIDI-controlled
   Effects); the plain CRT Scope AU, the one GarageBand lists, gets no MIDI.
