@@ -1,7 +1,8 @@
 #!/usr/bin/make -f
 # CRT Scope plugin. Windows VST3 (for FL Studio), built from Linux:
 #   make WINDOWS=true CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++
-DPF_PATH = ../dpf
+# DPF goes inside this folder (see README); ../dpf also works
+DPF_PATH ?= $(if $(wildcard dpf/Makefile.base.mk),dpf,../dpf)
 DPF_TARGET_DIR = bin
 DPF_BUILD_DIR = build
 NAME = CRT-Scope

@@ -2,7 +2,7 @@
 // plugin, open its window inside a host window, stream stereo audio through it
 // on a separate thread, click a button in the window, then shut everything down.
 // Windows only; built with mingw and run under Wine:
-//   x86_64-w64-mingw32-g++ -std=c++17 -O1 -I../../dpf/distrho/src minihost.cpp -o minihost.exe -static -lgdi32
+//   x86_64-w64-mingw32-g++ -std=c++17 -O1 -I../dpf/distrho/src minihost.cpp -o minihost.exe -static -lgdi32
 //   wine minihost.exe 'C:\path\CRT-Scope.vst3\Contents\x86_64-win\CRT-Scope.vst3'
 #define _USE_MATH_DEFINES
 #include <windows.h>

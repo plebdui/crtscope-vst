@@ -11,13 +11,23 @@ The audio passes through untouched.
 
 Image/video tracing and the clock from the terminal version aren't in the plugin.
 
+## Install in FL Studio
+
+Copy `CRT-Scope.vst3` into `C:\Program Files\Common Files\VST3` (on Linux
+with Wine: `~/.wine/drive_c/Program Files/Common Files/VST3`), then in FL:
+**Options → Manage plugins → Find more plugins**, and add **CRT Scope** to a
+mixer track.
+
 ## Build (Windows plugin, from Linux)
 
+Needs the mingw-w64 cross compiler (`x86_64-w64-mingw32-g++`).
+
 ```sh
+git clone https://github.com/plebdui/crtscope-vst.git
+cd crtscope-vst
 git clone --recursive https://github.com/DISTRHO/DPF.git dpf
-git -C dpf apply ../plugin/patches/dpf-wine-pixel-format.patch   # see below
-cd plugin
-make -C ../dpf/dgl WINDOWS=true CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ opengl
+git -C dpf apply ../patches/dpf-wine-pixel-format.patch   # see below
+make -C dpf/dgl WINDOWS=true CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ opengl
 make WINDOWS=true CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++
 # -> bin/CRT-Scope.vst3 and bin/CRT-Scope.clap
 ```
