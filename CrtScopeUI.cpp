@@ -134,11 +134,11 @@ static const Button kButtons[] = {
     {kMode, "MODE", kSelect},     {kPhosphor, "PHOSPHOR", kSelect}, {kAfterglow, "GLOW", kKnob},
     {kIntensity, "BEAM", kKnob},  {kGain, "GAIN", kKnob},           {kAutoGain, "AUTO", kSwitch},
     {kGraticule, "GRID", kSwitch}, {kFlaws, "FLAWS", kSelect},      {kWet, "WET", kKnob},
-    {kSweep, "SWEEP", kKnob},     {kShape, "SHAPE", kKnob},
+    {kSweep, "SWEEP", kKnob},     {kShape, "SHAPE", kKnob},         {kMidi, "MIDI", kSwitch},
 };
 static constexpr int kNumButtons = sizeof(kButtons) / sizeof(kButtons[0]);
 // how wide each button is, relative (phosphor names are long)
-static const float kWeights[kNumButtons] = {1.0f, 1.9f, 0.9f, 0.9f, 0.9f, 0.8f, 0.8f, 1.0f, 0.8f, 1.0f, 0.9f};
+static const float kWeights[kNumButtons] = {1.0f, 1.9f, 0.9f, 0.9f, 0.9f, 0.8f, 0.8f, 1.0f, 0.8f, 1.0f, 0.9f, 0.8f};
 
 class CrtScopeUI : public UI {
 public:
@@ -565,7 +565,8 @@ private:
         case kPhosphor:  v = (float)(((int)v + dir + 19) % 19); break;
         case kFlaws:     v = (float)(((int)v + dir + 3) % 3); break;
         case kAutoGain:
-        case kGraticule: v = v > 0.5f ? 0.0f : 1.0f; break;
+        case kGraticule:
+        case kMidi:      v = v > 0.5f ? 0.0f : 1.0f; break;
         case kSweep:     v = std::clamp(v * (dir > 0 ? 1.5f : 1 / 1.5f), 1.0f, 200.0f); break;
         case kWet:
         case kShape:     v = std::clamp(std::round(v * 20 + dir) / 20, 0.0f, 1.0f); break;
@@ -622,7 +623,8 @@ private:
             break;
         }
         case kAutoGain:
-        case kGraticule: std::snprintf(out, n, "%s", v > 0.5f ? "ON" : "OFF"); break;
+        case kGraticule:
+        case kMidi:      std::snprintf(out, n, "%s", v > 0.5f ? "ON" : "OFF"); break;
         case kSweep:     std::snprintf(out, n, "%.1f ms", v); break;
         case kWet:
         case kShape:     std::snprintf(out, n, "%d%%", (int)std::lround(v * 100)); break;
@@ -649,7 +651,7 @@ private:
             const uint32_t p = kButtons[b].param;
             const bool dim = (p == kSweep && std::lround(fValues[kMode]) != crt::kWave)
                           || (p == kWet && std::lround(fValues[kFlaws]) == 0 && !picture)
-                          || (p == kShape && !picture);
+                          || ((p == kShape || p == kMidi) && !picture);
             const Color col = dim ? off : accent;
             const float cx = x + w / 2, cy = y0 + 44 * scale;
             beginPath();

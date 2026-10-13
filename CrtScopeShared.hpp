@@ -30,6 +30,7 @@ enum Params {
     kWet,           // how much of the flaws and the shape reach the sound (0 dry .. 1 all)
     kEquation,      // which curve EQUATION mode draws (Equations.hpp)
     kShape,         // how much of the output is the shape played as sound (0 input .. 1 shape)
+    kMidi,          // SHAPE pitch: off = follow the input, on = follow MIDI notes
     kParamCount
 };
 
@@ -75,7 +76,8 @@ protected:
     void setParameterValue(uint32_t index, float value) override;
     void initState(uint32_t index, State& state) override;
     void setState(const char* key, const char* value) override;
-    void run(const float** inputs, float** outputs, uint32_t frames) override;
+    void run(const float** inputs, float** outputs, uint32_t frames,
+             const MidiEvent* midiEvents, uint32_t midiEventCount) override;
 
 private:
     float fParams[kParamCount];

@@ -1,6 +1,7 @@
 # Builds the Mac plugin (AU for GarageBand/Logic, plus VST3 and CLAP) as one
-# universal binary for Intel and Apple Silicon, then checks the AU with
-# Apple's auval, the same validator Logic runs.
+# universal binary for Intel and Apple Silicon, plus "CRT Scope MIDI", a second
+# AU that Logic sends MIDI to, then checks both AUs with Apple's auval, the
+# same validator Logic runs.
 name: macOS
 
 on:
@@ -22,6 +23,7 @@ jobs:
           git -C dpf checkout 4238e1c7f0351bbe488d79f0899c540543ac7583
           git -C dpf submodule update --init --recursive
           git -C dpf apply ../patches/dpf-wine-pixel-format.patch
+          git -C dpf apply ../patches/dpf-vst3-no-midi-cc-params.patch
 
       - name: Build
         run: |
@@ -29,14 +31,20 @@ jobs:
           make -j3
           codesign --force --deep -s - bin/CRT-Scope.component bin/CRT-Scope.vst3 bin/CRT-Scope.clap
           lipo -info bin/CRT-Scope.component/Contents/MacOS/CRT-Scope
+          # the MIDI-controlled AU, with its own window library build
+          make -C dpf/dgl opengl -j3 BUILD_DIR_SUFFIX=-midi DGL_NAMESPACE=CrtScopeMidiDGL
+          make -j3 MIDI_AU=true
+          codesign --force --deep -s - bin/CRT-Scope-MIDI.component
+          lipo -info bin/CRT-Scope-MIDI.component/Contents/MacOS/CRT-Scope-MIDI
 
       - name: auval (Apple's Audio Unit validator)
         run: |
           mkdir -p ~/Library/Audio/Plug-Ins/Components
-          cp -R bin/CRT-Scope.component ~/Library/Audio/Plug-Ins/Components/
+          cp -R bin/CRT-Scope.component bin/CRT-Scope-MIDI.component ~/Library/Audio/Plug-Ins/Components/
           killall -9 AudioComponentRegistrar || true
-          auval -a | grep -i "crts" || true
+          auval -a | grep -i "crts\|crsm" || true
           auval -strict -v aufx CrtS Pleb
+          auval -strict -v aumf CrSM Pleb
 
       - name: Open the window in a test host
         run: |
@@ -54,7 +62,7 @@ jobs:
       - name: Zip
         run: |
           cd bin
-          zip -qry ../CRT-Scope-mac.zip CRT-Scope.component CRT-Scope.vst3 CRT-Scope.clap
+          zip -qry ../CRT-Scope-mac.zip CRT-Scope.component CRT-Scope-MIDI.component CRT-Scope.vst3 CRT-Scope.clap
 
       - uses: actions/upload-artifact@v4
         with:
