@@ -128,11 +128,12 @@ struct Button {
 static const Button kButtons[] = {
     {kMode, "MODE"},     {kPhosphor, "PHOSPHOR"}, {kAfterglow, "GLOW"},
     {kIntensity, "BEAM"}, {kGain, "GAIN"},         {kAutoGain, "AUTO"},
-    {kGraticule, "GRID"}, {kFlaws, "FLAWS"},       {kSweep, "SWEEP"},
+    {kGraticule, "GRID"}, {kFlaws, "FLAWS"},       {kWet, "WET"},
+    {kSweep, "SWEEP"},
 };
 static constexpr int kNumButtons = sizeof(kButtons) / sizeof(kButtons[0]);
 // how wide each button is, relative (phosphor names are long)
-static const float kWeights[kNumButtons] = {1.0f, 1.9f, 0.9f, 0.9f, 0.9f, 0.8f, 0.8f, 1.0f, 1.0f};
+static const float kWeights[kNumButtons] = {1.0f, 1.9f, 0.9f, 0.9f, 0.9f, 0.8f, 0.8f, 1.0f, 0.8f, 1.0f};
 
 class CrtScopeUI : public UI {
 public:
@@ -143,8 +144,9 @@ public:
         for (int i = 0; i < kParamCount; ++i)
             fValues[i] = 0;
         fValues[kAfterglow] = fValues[kIntensity] = fValues[kGain] = 1;
-        fValues[kAutoGain] = fValues[kGraticule] = fValues[kFlaws] = 1;
+        fValues[kAutoGain] = fValues[kGraticule] = 1;
         fValues[kSweep] = 20;
+        fValues[kWet] = 1;
         apply();
         fLast = std::chrono::steady_clock::now();
         if (const char* p = std::getenv("CRTSCOPE_DUMP"))  // testing: save a frame to this file
@@ -433,6 +435,7 @@ private:
         case kAutoGain:
         case kGraticule: v = v > 0.5f ? 0.0f : 1.0f; break;
         case kSweep:     v = std::clamp(v * (dir > 0 ? 1.5f : 1 / 1.5f), 1.0f, 200.0f); break;
+        case kWet:       v = std::clamp(std::round(v * 10 + dir) / 10, 0.0f, 1.0f); break;
         default:         v = std::clamp(v * (dir > 0 ? 1.25f : 0.8f), 0.05f, 20.0f); break;
         }
         fValues[p] = v;
@@ -488,6 +491,7 @@ private:
         case kAutoGain:
         case kGraticule: std::snprintf(out, n, "%s", v > 0.5f ? "ON" : "OFF"); break;
         case kSweep:     std::snprintf(out, n, "%.1f ms", v); break;
+        case kWet:       std::snprintf(out, n, "%d%%", (int)std::lround(v * 100)); break;
         default:         std::snprintf(out, n, "%.2fx", v); break;
         }
     }
@@ -506,7 +510,8 @@ private:
         for (int b = 0; b < kNumButtons; ++b) {
             float x, w;
             buttonRect(b, x, w);
-            const bool dim = kButtons[b].param == kSweep && std::lround(fValues[kMode]) != crt::kWave;
+            const bool dim = (kButtons[b].param == kSweep && std::lround(fValues[kMode]) != crt::kWave)
+                          || (kButtons[b].param == kWet && std::lround(fValues[kFlaws]) == 0);
             beginPath();
             roundedRect(x + 2 * scale, y0 + 4 * scale, w - 4 * scale, h - 8 * scale, 4 * scale);
             fillColor(Color(34, 36, 40));

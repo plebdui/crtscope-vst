@@ -1,9 +1,11 @@
 #include "CrtScopeShared.hpp"
+#include <cmath>
 #include <cstring>
 
 START_NAMESPACE_DISTRHO
 
-static const float kDefaults[kParamCount] = {0, 0, 1, 1, 1, 1, 1, 1, 20};
+// flaws default off: dropping the scope on a track shouldn't change the sound
+static const float kDefaults[kParamCount] = {0, 0, 1, 1, 1, 1, 1, 0, 20, 1};
 
 CrtScopePlugin::CrtScopePlugin()
     : Plugin(kParamCount, 0, 1)
@@ -75,6 +77,10 @@ void CrtScopePlugin::initParameter(uint32_t index, Parameter& p)
         p.name = "Sweep"; p.symbol = "sweep"; p.unit = "ms";
         p.ranges.min = 1; p.ranges.max = 200;
         break;
+    case kWet:
+        p.name = "Wet"; p.symbol = "wet"; p.unit = "%";
+        p.ranges.min = 0; p.ranges.max = 1;
+        break;
     }
 }
 
@@ -99,12 +105,10 @@ void CrtScopePlugin::initState(uint32_t, State& state)
 
 void CrtScopePlugin::run(const float** inputs, float** outputs, uint32_t frames)
 {
-    ring.write(inputs[0], inputs[1], frames);  // before the copy, in case the host reuses buffers
-    // a scope listens, it doesn't change the sound
-    if (outputs[0] != inputs[0])
-        std::memcpy(outputs[0], inputs[0], sizeof(float) * frames);
-    if (outputs[1] != inputs[1])
-        std::memcpy(outputs[1], inputs[1], sizeof(float) * frames);
+    ring.write(inputs[0], inputs[1], frames);  // the scope shows the clean input
+    // tube flaws (hum, drift, flicker) on the sound too; OFF = untouched
+    fAmp.process(inputs[0], inputs[1], outputs[0], outputs[1], frames,
+                 (int)std::lround(fParams[kFlaws]), fParams[kWet], (float)getSampleRate());
 }
 
 Plugin* createPlugin()

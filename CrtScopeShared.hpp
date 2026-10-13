@@ -3,6 +3,7 @@
 #pragma once
 
 #include "DistrhoPlugin.hpp"
+#include "TubeAmp.hpp"
 #include <atomic>
 
 START_NAMESPACE_DISTRHO
@@ -15,8 +16,9 @@ enum Params {
     kGain,          // how big the picture is
     kAutoGain,      // keep the picture filling the tube
     kGraticule,     // grid on the glass
-    kFlaws,         // off / subtle / worn
+    kFlaws,         // off / subtle / worn (picture and sound)
     kSweep,         // waveform mode: milliseconds across the screen
+    kWet,           // how much of the flaws reach the sound (0 dry .. 1 all)
     kParamCount
 };
 
@@ -53,7 +55,7 @@ protected:
     const char* getMaker() const override { return "plebdui"; }
     const char* getHomePage() const override { return "https://github.com/plebdui/crtscope"; }
     const char* getLicense() const override { return "ISC"; }
-    uint32_t getVersion() const override { return d_version(1, 1, 0); }
+    uint32_t getVersion() const override { return d_version(1, 2, 0); }
 
     void initAudioPort(bool input, uint32_t index, AudioPort& port) override;
     void initParameter(uint32_t index, Parameter& parameter) override;
@@ -65,6 +67,7 @@ protected:
 
 private:
     float fParams[kParamCount];
+    crt::TubeAmp fAmp;
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CrtScopePlugin)
 };
 
