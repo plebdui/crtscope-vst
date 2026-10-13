@@ -663,6 +663,58 @@ int main(int argc, char** argv)
         std::printf("EQUATION mode: %s, clicking the tube -> param %d = %.3f\n", eqMode ? "on" : "NOT ON",
                     gLastParam.load(), gLastValue.load());
         dropped = dropped && eqMode && gLastParam == 10 && std::fabs(gLastValue - 0.1) < 1e-6;
+
+        // ---- drop a second picture (argv[3], or the same one again): it should replace the first
+        const char* second = argc > 3 ? argv[3] : argv[2];
+        MultiByteToWideChar(CP_UTF8, 0, second, -1, wpath, MAX_PATH);
+        DragFile file2(wpath);
+        DragHand hand2;
+        SetCursorPos((sr.left + sr.right) / 2, (sr.top + sr.bottom) / 2 - 40);
+        pump(0.3);
+        effect = 0;
+        const HRESULT hr2 = DoDragDrop(&file2, &hand2, DROPEFFECT_COPY, &effect);
+        pump(6.0);
+        if (const char* shot = std::getenv("MINIHOST_SHOT")) saveWindow(win, (std::string(shot) + "4.bmp").c_str());
+        Stream st2;
+        v3_cpp_obj(comp)->get_state(comp, (v3_bstream**)&st2);
+        const std::string blob2(st2.data.begin(), st2.data.end());
+        const std::string name2 = std::string(second).substr(std::string(second).find_last_of("\\/") + 1);
+        const bool again = hr2 == DRAGDROP_S_DROP && effect == DROPEFFECT_COPY && gLastParam == 0 && gLastValue == 0.75
+                        && blob2.find(name2) != std::string::npos;
+        std::printf("second drop: hr=0x%lx effect=%lu, param %d -> %.3f, saved name: %s\n", (unsigned long)hr2, effect,
+                    gLastParam.load(), gLastValue.load(), blob2.find(name2) != std::string::npos ? "yes" : "NO");
+        dropped = dropped && again;
+
+        // ---- click the tube (IMAGE mode) twice: each time the file picker opens, pick a file
+        bool picked = true;
+        for (int k = 0; k < 2; ++k) {
+            const char* file = k == 0 ? (argc > 4 ? argv[4] : argv[2]) : second;  // argv[4]: a big GIF, still tracing when the second is picked
+            const LPARAM mid = MAKELPARAM(cr.right / 2, (cr.bottom - 84) / 2);
+            PostMessageA(child, WM_LBUTTONDOWN, MK_LBUTTON, mid);
+            PostMessageA(child, WM_LBUTTONUP, 0, mid);
+            HWND dlg = nullptr;
+            for (int i = 0; i < 50 && !dlg; ++i) {
+                pump(0.1);
+                dlg = FindWindowA(nullptr, "Pick a GIF or picture for the CRT");
+            }
+            if (!dlg) {
+                std::printf("file picker %d: DID NOT OPEN\n", k + 1);
+                picked = false;
+                break;
+            }
+            SetDlgItemTextA(dlg, 0x47c, file);  // file name box
+            SetDlgItemTextA(dlg, 0x480, file);
+            PostMessageA(dlg, WM_COMMAND, IDOK, 0);
+            pump(k == 0 && argc > 4 ? 0.5 : 4.0);
+            Stream stk;
+            v3_cpp_obj(comp)->get_state(comp, (v3_bstream**)&stk);
+            const std::string b(stk.data.begin(), stk.data.end());
+            const std::string nm = std::string(file).substr(std::string(file).find_last_of("\\/") + 1);
+            const bool ok = b.find(nm) != std::string::npos;
+            std::printf("file picker %d: picked %s, saved: %s\n", k + 1, nm.c_str(), ok ? "yes" : "NO");
+            picked = picked && ok;
+        }
+        dropped = dropped && picked;
     }
 
     // ---- close the window, stop audio, unload (what FL does when you remove the plugin)

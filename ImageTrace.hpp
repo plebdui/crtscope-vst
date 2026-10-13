@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -313,36 +314,65 @@ static std::string loadPicture(const std::string& path, Picture& pic, const std:
     std::vector<uint8_t> data;
     if (!readFile(path, data))
         return "can't open the file";
-    int w = 0, h = 0, frames = 1, comp = 0;
-    int* delays = nullptr;
-    uint8_t* px;
     const bool gif = data.size() > 3 && data[0] == 'G' && data[1] == 'I' && data[2] == 'F';
-    if (gif)
-        px = stbi_load_gif_from_memory(data.data(), (int)data.size(), &delays, &w, &h, &frames, &comp, 4);
-    else
-        px = stbi_load_from_memory(data.data(), (int)data.size(), &w, &h, &comp, 4);
+    if (gif) {
+        // one frame at a time: unpacking a long GIF all at once can take minutes
+        // on Windows (the buffer is regrown for every frame) and gigabytes of memory
+        stbi__context s;
+        stbi__start_mem(&s, data.data(), (int)data.size());
+        stbi__gif g;
+        std::memset(&g, 0, sizeof(g));
+        std::vector<uint8_t> prev, twoBack;  // "restore previous" frames need the one before
+        int prevDelay = 0, frames = 0, comp = 0;
+        float t = 0;
+        // each frame is traced once the next one is read, so a lone frame is
+        // known to be a still picture
+        auto add = [&](bool anim) {
+            const float dur = std::max(prevDelay ? prevDelay : 100, 20) / 1000.0f;
+            Frame fr;
+            if (traceFrame(prev.data(), g.w, g.h, anim, fr)) {
+                pic.frames.push_back(std::move(fr));
+                pic.starts.push_back(t);
+            } else if (!pic.frames.empty()) {
+                pic.frames.emplace_back();  // blank frame: keep it so the timing stays right
+                pic.starts.push_back(t);
+            }
+            t += dur;
+        };
+        while (!cancel.load()) {
+            uint8_t* u = stbi__gif_load_next(&s, &g, &comp, 4, twoBack.empty() ? nullptr : twoBack.data());
+            if (!u || u == (uint8_t*)&s)  // error, or the end of the file
+                break;
+            if (frames++ > 0)
+                add(true);
+            twoBack.swap(prev);
+            prev.assign(u, u + (size_t)g.w * g.h * 4);
+            prevDelay = g.delay;
+            percent.store((int)((s.img_buffer - s.img_buffer_original) * 100 / (long long)data.size()));
+        }
+        if (frames > 0 && !cancel.load())
+            add(frames > 1);
+        percent.store(100);
+        STBI_FREE(g.out);
+        STBI_FREE(g.history);
+        STBI_FREE(g.background);
+        pic.length = t;
+        if (pic.frames.empty() && !cancel.load())
+            return g.w ? "couldn't find any outlines in that picture" : "not a GIF, PNG, JPG or BMP";
+        return "";
+    }
+    int w = 0, h = 0, comp = 0;
+    uint8_t* px = stbi_load_from_memory(data.data(), (int)data.size(), &w, &h, &comp, 4);
     if (!px)
         return "not a GIF, PNG, JPG or BMP";
-    const bool anim = frames > 1;
-    float t = 0;
-    for (int f = 0; f < frames && !cancel.load(); ++f) {
-        const float dur = std::max(delays ? delays[f] : 100, 20) / 1000.0f;
-        Frame fr;
-        if (traceFrame(px + (size_t)f * w * h * 4, w, h, anim, fr)) {
-            pic.frames.push_back(std::move(fr));
-            pic.starts.push_back(t);
-        } else if (!pic.frames.empty()) {
-            // blank frame: keep it as an empty one so the timing stays right
-            pic.frames.emplace_back();
-            pic.starts.push_back(t);
-        }
-        t += dur;
-        percent.store((f + 1) * 100 / frames);
+    Frame fr;
+    if (traceFrame(px, w, h, false, fr)) {
+        pic.frames.push_back(std::move(fr));
+        pic.starts.push_back(0);
     }
-    pic.length = t;
+    percent.store(100);
+    pic.length = 0.1f;
     stbi_image_free(px);
-    if (delays)
-        stbi_image_free(delays);
     if (pic.frames.empty())
         return "couldn't find any outlines in that picture";
     return "";
