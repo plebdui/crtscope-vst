@@ -235,7 +235,20 @@ protected:
         const float dt = std::chrono::duration<float>(now - fLast).count();
         fLast = now;
         fTube.shapeN = 0;
-        if (fTube.mode == crt::kImage && fPic) {
+        if (mode() == kModeEquation) {
+            const int eq = std::clamp((int)std::lround(fValues[kEquation]), 0, crt::kNumEquations - 1);
+            fEqTime = std::fmod(fEqTime + std::clamp(dt, 0.0f, 0.25f), 3600.0);
+            const int n = 1500;
+            fEqX.resize(n);
+            fEqY.resize(n);
+            for (int i = 0; i < n; ++i)
+                crt::equation(eq, i / (double)(n - 1), fEqTime, fEqX[i], fEqY[i]);
+            fTube.shapeX = fEqX.data();
+            fTube.shapeY = fEqY.data();
+            fTube.shapeBlank = nullptr;
+            fTube.shapeN = n;
+            fTube.shapeMoving = crt::kEquationInfo[eq].animated;
+        } else if (mode() == kModeImage && fPic) {
             fPicTime += std::clamp(dt, 0.0f, 0.25f);
             if (const crt::Frame* fr = fPic->at(fPicTime)) {
                 fTube.shapeX = fr->x.data();
@@ -269,13 +282,15 @@ protected:
         fillPaint(imagePattern(0, 0, w, h, 0, fImage, 1.0f));
         fill();
 
-        if (fTube.mode == crt::kImage)
+        if (mode() == kModeEquation)
+            drawEquationLabel((float)w, (float)h, (float)scale);
+        if (mode() == kModeImage)
             drawImageHint((float)w, (float)h, (float)scale);
         drawStrip((float)h, (float)stripH, (float)scale);
 
-        // testing hook: snapshot the whole window (buttons included) 3s, 7s and 13s after opening
-        if (!fDumpPath.empty() && fDumps < 3) {
-            static const float when[3] = {3.0f, 7.0f, 13.0f};
+        // testing hook: snapshot the whole window (buttons included) 3s, 7s, 13s and 19.5s after opening
+        if (!fDumpPath.empty() && fDumps < 4) {
+            static const float when[4] = {3.0f, 7.0f, 13.0f, 19.5f};
             const float age = std::chrono::duration<float>(std::chrono::steady_clock::now() - fOpened).count();
             if (age > when[fDumps]) {
                 static_cast<NanoVG*>(this)->endFrame();
@@ -297,7 +312,11 @@ protected:
         }
         const int b = buttonAt(ev.pos.getX(), ev.pos.getY());
         if (b < 0) {
-            if (fTube.mode != crt::kImage || ev.button != 1)
+            if (mode() == kModeEquation && ev.button == 1 && ev.pos.getY() < getHeight() - kStrip * getScaleFactor()) {
+                stepEquation(ev.pos.getX() < getWidth() / 2.0 ? -1 : 1);  // left half = back, right half = next
+                return true;
+            }
+            if (mode() != kModeImage || ev.button != 1)
                 return false;
             FileBrowserOptions opts;  // clicking the tube in image mode picks a file
             opts.title = "Pick a GIF or picture for the CRT";
@@ -337,6 +356,10 @@ protected:
     bool onScroll(const ScrollEvent& ev) override
     {
         const int b = buttonAt(ev.pos.getX(), ev.pos.getY());
+        if (b < 0 && mode() == kModeEquation && ev.delta.getY() != 0) {
+            stepEquation(ev.delta.getY() > 0 ? 1 : -1);
+            return true;
+        }
         if (b < 0 || ev.delta.getY() == 0)
             return false;
         nudge(b, ev.delta.getY() > 0 ? 1 : -1);
@@ -357,6 +380,8 @@ private:
     std::unique_ptr<crt::Picture> fPic;
     std::string fPicPath, fPicError;
     double fPicTime = 0;
+    std::vector<float> fEqX, fEqY;
+    double fEqTime = 0;
 #ifdef _WIN32
     DropTarget* fDrop = nullptr;
     HWND fDropHwnd = nullptr;
@@ -398,11 +423,11 @@ private:
         fPicPath.clear();  // reload even if it's the same file (it may have changed)
         loadImage(path);
         setState("image", path.c_str());
-        if (std::lround(fValues[kMode]) != crt::kImage) {
-            fValues[kMode] = crt::kImage;
+        if (mode() != kModeImage) {
+            fValues[kMode] = kModeImage;
             apply();
             editParameter(kMode, true);
-            setParameterValue(kMode, crt::kImage);
+            setParameterValue(kMode, kModeImage);
             editParameter(kMode, false);
         }
     }
@@ -415,6 +440,36 @@ private:
         fPicError.clear();
         fLoader.reset(new Loader(path));  // cancels and waits for any earlier one
         repaint();
+    }
+
+    int mode() const { return (int)std::lround(fValues[kMode]); }
+
+    void stepEquation(int dir)
+    {
+        const int eq = ((int)std::lround(fValues[kEquation]) + dir + crt::kNumEquations) % crt::kNumEquations;
+        editParameter(kEquation, true);
+        setValue(kEquation, (float)eq);
+        editParameter(kEquation, false);
+        fEqTime = 0;
+    }
+
+    // the curve's name along the bottom of the tube, with arrows
+    void drawEquationLabel(float w, float h, float scale)
+    {
+        const int eq = std::clamp((int)std::lround(fValues[kEquation]), 0, crt::kNumEquations - 1);
+        const crt::Phosphor& ph = crt::phosphors()[std::clamp((int)std::lround(fValues[kPhosphor]), 0, 18)];
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "<   %s   >", crt::kEquationInfo[eq].name);
+        fontFace(NANOVG_DEJAVU_SANS_TTF);
+        textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
+        fontSize(13 * scale);
+        fillColor(Color((int)ph.glow[0], (int)ph.glow[1], (int)ph.glow[2], 200));
+        text(w / 2, h - 52 * scale, buf, nullptr);
+        std::snprintf(buf, sizeof(buf), "%s  %d/%d", crt::kEquationInfo[eq].animated ? "animated" : "static",
+                      eq + 1, crt::kNumEquations);
+        fontSize(9.5f * scale);
+        fillColor(Color(120, 128, 124));
+        text(w / 2, h - 36 * scale, buf, nullptr);
     }
 
     void drawImageHint(float w, float h, float scale)
@@ -462,7 +517,7 @@ private:
 
     void apply()
     {
-        fTube.mode = (int)std::lround(fValues[kMode]);
+        fTube.mode = mode() >= kModeImage ? crt::kImage : mode();  // pictures and equations draw the same way
         fTube.phosphor = (int)std::lround(fValues[kPhosphor]);
         fTube.afterglow = fValues[kAfterglow];
         fTube.intensity = fValues[kIntensity];
@@ -506,7 +561,7 @@ private:
         const uint32_t p = kButtons[b].param;
         float v = fValues[p];
         switch (p) {
-        case kMode:      v = (float)(((int)v + dir + 4) % 4); break;
+        case kMode:      v = (float)(((int)v + dir + 5) % 5); break;
         case kPhosphor:  v = (float)(((int)v + dir + 19) % 19); break;
         case kFlaws:     v = (float)(((int)v + dir + 3) % 3); break;
         case kAutoGain:
@@ -553,8 +608,8 @@ private:
         const float v = fValues[p];
         switch (p) {
         case kMode: {
-            static const char* m[] = {"XY", "GONIO", "WAVE", "IMAGE"};
-            std::snprintf(out, n, "%s", m[std::clamp((int)std::lround(v), 0, 3)]);
+            static const char* m[] = {"XY", "GONIO", "WAVE", "IMAGE", "EQUATION"};
+            std::snprintf(out, n, "%s", m[std::clamp((int)std::lround(v), 0, 4)]);
             break;
         }
         case kPhosphor:
@@ -585,7 +640,7 @@ private:
         fontFace(NANOVG_DEJAVU_SANS_TTF);
         textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
         char buf[48];
-        const bool picture = std::lround(fValues[kMode]) == crt::kImage && fPic;
+        const bool picture = (mode() == kModeImage && fPic) || mode() == kModeEquation;
         for (int b = 0; b < kNumButtons; ++b) {
             float x, w;
             buttonRect(b, x, w);

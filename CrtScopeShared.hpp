@@ -5,6 +5,7 @@
 #include "DistrhoPlugin.hpp"
 #include "TubeAmp.hpp"
 #include "PictureFx.hpp"
+#include "Equations.hpp"
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -12,8 +13,11 @@
 
 START_NAMESPACE_DISTRHO
 
+// mode values past the tube's own XY / GONIO / WAVE
+static constexpr int kModeImage = 3, kModeEquation = 4;
+
 enum Params {
-    kMode = 0,      // XY / goniometer / waveform / image
+    kMode = 0,      // XY / goniometer / waveform / image / equation
     kPhosphor,      // 0-3 real phosphors, 4-18 Apple II colours
     kAfterglow,     // afterglow length multiplier
     kIntensity,     // beam brightness
@@ -22,7 +26,8 @@ enum Params {
     kGraticule,     // grid on the glass
     kFlaws,         // off / subtle / worn (picture and sound)
     kSweep,         // waveform mode: milliseconds across the screen
-    kWet,           // how much of the flaws reach the sound (0 dry .. 1 all)
+    kWet,           // how much of the flaws and the shape reach the sound (0 dry .. 1 all)
+    kEquation,      // which curve EQUATION mode draws (Equations.hpp)
     kParamCount
 };
 
@@ -83,6 +88,8 @@ private:
     std::thread fLoadThread;
     std::atomic<bool> fLoadCancel{false};
     std::string fPicPath;
+    float fEqX[crt::PictureMod::kN], fEqY[crt::PictureMod::kN];
+    double fEqTime = 0;
     void stopLoading();
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CrtScopePlugin)
 };

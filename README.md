@@ -13,7 +13,7 @@ The audio passes through untouched, unless you turn on FLAWS or load a picture.
   <img src="screenshots/window-gonio.png" width="45%" alt="The plugin window in goniometer mode">
 </p>
 
-- **Modes:** XY (Lissajous), goniometer, a triggered waveform, and IMAGE
+- **Modes:** XY (Lissajous), goniometer, a triggered waveform, IMAGE and EQUATION
 - **Pictures:** drag a GIF, PNG, JPG or BMP onto the window (or click the tube
   in IMAGE mode to pick one) and the beam traces its outlines; GIFs animate and
   the music shakes the picture. The file is saved with your FL project.
@@ -34,6 +34,22 @@ The audio passes through untouched, unless you turn on FLAWS or load a picture.
 <p align="center">
   <img src="screenshots/window-image.png" width="45%" alt="A dropped GIF traced on the tube in IMAGE mode">
 </p>
+
+## Equations
+
+EQUATION mode draws built-in parametric curves. Click the left or right half
+of the tube (or scroll on it) to change curve; it's also an automatable
+parameter. Like pictures, the curve shapes the sound passing through (WET sets
+how much).
+
+**Static:** rose, heart, butterfly, spirograph, Lissajous knot, infinity
+
+![Rose, heart, butterfly, spirograph, Lissajous knot and infinity curves](screenshots/equations-static.png)
+
+**Animated:** spinning Lissajous, morphing rose, breathing spirograph,
+beating heart, rotating cube
+
+![Spinning Lissajous, morphing rose, breathing spirograph, beating heart and rotating cube, animated](screenshots/equations-animated.gif)
 
 Video files and the clock from the terminal version aren't in the plugin.
 

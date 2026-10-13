@@ -5,12 +5,14 @@
 START_NAMESPACE_DISTRHO
 
 // flaws default off: dropping the scope on a track shouldn't change the sound
-static const float kDefaults[kParamCount] = {0, 0, 1, 1, 1, 1, 1, 0, 20, 1};
+static const float kDefaults[kParamCount] = {0, 0, 1, 1, 1, 1, 1, 0, 20, 1, 0};
 
 CrtScopePlugin::CrtScopePlugin()
     : Plugin(kParamCount, 0, 1)
 {
     std::memcpy(fParams, kDefaults, sizeof(fParams));
+    float x, y;
+    crt::equation(0, 0, 0, x, y);  // works out the curves' sizes now, not on the audio thread
 }
 
 CrtScopePlugin::~CrtScopePlugin()
@@ -67,9 +69,9 @@ void CrtScopePlugin::initParameter(uint32_t index, Parameter& p)
     case kMode: {
         p.hints |= kParameterIsInteger;
         p.name = "Mode"; p.symbol = "mode";
-        p.ranges.min = 0; p.ranges.max = 3;
-        static ParameterEnumerationValue v[4] = {{0, "XY"}, {1, "Goniometer"}, {2, "Waveform"}, {3, "Image"}};
-        p.enumValues.count = 4; p.enumValues.restrictedMode = true; p.enumValues.values = v;
+        p.ranges.min = 0; p.ranges.max = 4;
+        static ParameterEnumerationValue v[5] = {{0, "XY"}, {1, "Goniometer"}, {2, "Waveform"}, {3, "Image"}, {4, "Equation"}};
+        p.enumValues.count = 5; p.enumValues.restrictedMode = true; p.enumValues.values = v;
         p.enumValues.deleteLater = false;
         break;
     }
@@ -117,6 +119,19 @@ void CrtScopePlugin::initParameter(uint32_t index, Parameter& p)
         p.name = "Sweep"; p.symbol = "sweep"; p.unit = "ms";
         p.ranges.min = 1; p.ranges.max = 200;
         break;
+    case kEquation: {
+        p.hints |= kParameterIsInteger;
+        p.name = "Equation"; p.symbol = "equation";
+        p.ranges.min = 0; p.ranges.max = crt::kNumEquations - 1;
+        static ParameterEnumerationValue v[crt::kNumEquations];
+        for (int i = 0; i < crt::kNumEquations; ++i) {
+            v[i].value = (float)i;
+            v[i].label = crt::kEquationInfo[i].name;
+        }
+        p.enumValues.count = crt::kNumEquations; p.enumValues.restrictedMode = true; p.enumValues.values = v;
+        p.enumValues.deleteLater = false;
+        break;
+    }
     case kWet:
         p.name = "Wet"; p.symbol = "wet"; p.unit = "%";
         p.ranges.min = 0; p.ranges.max = 1;
@@ -149,10 +164,23 @@ void CrtScopePlugin::run(const float** inputs, float** outputs, uint32_t frames)
     // tube flaws (hum, drift, flicker) on the sound too; OFF = untouched
     fAmp.process(inputs[0], inputs[1], outputs[0], outputs[1], frames,
                  (int)std::lround(fParams[kFlaws]), fParams[kWet], (float)getSampleRate());
-    // in IMAGE mode the picture shapes the sound as well
-    const bool image = std::lround(fParams[kMode]) == 3;
-    fPicFx.process(outputs[0], outputs[1], frames, image ? fPic.load(std::memory_order_acquire) : nullptr,
-                   fParams[kWet], (float)getSampleRate());
+    // in IMAGE and EQUATION modes the shape on the tube shapes the sound as well
+    const int mode = (int)std::lround(fParams[kMode]);
+    const float sr = (float)getSampleRate();
+    if (mode == kModeEquation) {
+        const int eq = (int)std::lround(fParams[kEquation]);
+        float len = 0;
+        for (int k = 0; k < crt::PictureMod::kN; ++k) {
+            crt::equation(eq, k / (double)crt::PictureMod::kN, fEqTime, fEqX[k], fEqY[k]);
+            if (k) len += std::hypot(fEqX[k] - fEqX[k - 1], fEqY[k] - fEqY[k - 1]);
+        }
+        fEqTime = std::fmod(fEqTime + frames / (double)sr, 3600.0);
+        fPicFx.process(outputs[0], outputs[1], frames, fEqX, fEqY, std::min(1.0f, len / 16.0f), 0.25f,
+                       fParams[kWet], sr);
+    } else {
+        fPicFx.process(outputs[0], outputs[1], frames, mode == kModeImage ? fPic.load(std::memory_order_acquire) : nullptr,
+                       fParams[kWet], sr);
+    }
 }
 
 Plugin* createPlugin()

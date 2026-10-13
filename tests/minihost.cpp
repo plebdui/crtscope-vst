@@ -635,7 +635,7 @@ int main(int argc, char** argv)
         const HRESULT hr = DoDragDrop(&file, &hand, DROPEFFECT_COPY, &effect);
         std::printf("drag and drop: hr=0x%lx effect=%lu, param %d -> %.3f\n", (unsigned long)hr, effect,
                     gLastParam.load(), gLastValue.load());
-        dropped = hr == DRAGDROP_S_DROP && effect == DROPEFFECT_COPY && gLastParam == 0 && gLastValue == 1.0;  // 1.0 = last mode, IMAGE
+        dropped = hr == DRAGDROP_S_DROP && effect == DROPEFFECT_COPY && gLastParam == 0 && gLastValue == 0.75;  // IMAGE = mode 3 of 0..4
         pump(6.0);  // trace it and show it
         std::printf("sound after the drop: %s\n", changed ? "shaped by the picture" : "UNCHANGED");
         dropped = dropped && changed;
@@ -650,6 +650,19 @@ int main(int argc, char** argv)
         if (const char* keep = std::getenv("MINIHOST_SAVE"))
             if (FILE* f = std::fopen(keep, "wb")) { std::fwrite(blob.data(), 1, blob.size(), f); std::fclose(f); }
         std::printf("saved state: %zu bytes, contains the file name: %s\n", blob.size(), saved ? "yes" : "NO");
+
+        // ---- next mode is EQUATION; click the tube's right half for the next curve
+        PostMessageA(child, WM_LBUTTONDOWN, MK_LBUTTON, pos);
+        PostMessageA(child, WM_LBUTTONUP, 0, pos);
+        pump(1.5);
+        const bool eqMode = gLastParam == 0 && gLastValue == 1.0;
+        const LPARAM right = MAKELPARAM(cr.right * 3 / 4, (cr.bottom - 84) / 2);
+        PostMessageA(child, WM_LBUTTONDOWN, MK_LBUTTON, right);
+        PostMessageA(child, WM_LBUTTONUP, 0, right);
+        pump(3.5);
+        std::printf("EQUATION mode: %s, clicking the tube -> param %d = %.3f\n", eqMode ? "on" : "NOT ON",
+                    gLastParam.load(), gLastValue.load());
+        dropped = dropped && eqMode && gLastParam == 10 && std::fabs(gLastValue - 0.1) < 1e-6;
     }
 
     // ---- close the window, stop audio, unload (what FL does when you remove the plugin)
@@ -678,7 +691,7 @@ int main(int argc, char** argv)
     CHECK(!reloaded || changed, "a reopened project's picture should shape the sound");
     CHECK(modeClicked, "clicking MODE should change parameter 0");
     CHECK(knobTurned, "dragging the GLOW knob up should raise parameter 2");
-    CHECK(dropped, "dropping a picture should switch to IMAGE mode");
+    CHECK(dropped, "dropping a picture should switch to IMAGE mode, then EQUATION mode should step curves");
     CHECK(saved, "the dropped picture should be saved with the project");
     std::printf("ALL OK\n");
     return 0;

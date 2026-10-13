@@ -1,4 +1,4 @@
-// IMAGE mode on the sound: the traced picture shapes the audio passing through.
+// IMAGE and EQUATION modes on the sound: the shape on the tube shapes the audio passing through.
 // The beam's path around the outline becomes a tremolo (left/right position
 // moves the left channel's level, up/down the right's), and how busy each
 // frame is sets a low-pass filter (sparse = dark, detailed = bright). A GIF
@@ -59,32 +59,63 @@ public:
     // In place on the audio. Called on the audio thread: no allocation.
     void process(float* l, float* r, uint32_t n, const PictureMod* pic, float wet, float sampleRate)
     {
+        if (!pic || pic->busy.empty()) {
+            reset();
+            return;
+        }
+        run(l, r, n, wet, sampleRate, [pic](double t) {
+            const size_t f = pic->frameAt(t);
+            return Shape{&pic->x[f * PictureMod::kN], &pic->y[f * PictureMod::kN], pic->busy[f], pic->frameLength(f)};
+        });
+    }
+
+    // Same, from one outline table (kN points) that the caller refreshes
+    // every block (EQUATION mode)
+    void process(float* l, float* r, uint32_t n, const float* X, const float* Y, float busy, float traceLen,
+                 float wet, float sampleRate)
+    {
+        run(l, r, n, wet, sampleRate, [=](double) { return Shape{X, Y, busy, traceLen}; });
+    }
+
+    void reset()
+    {
+        gl = gr = 1;
+        lpL = lpR = 0;
+        primed = false;
+    }
+
+private:
+    struct Shape {
+        const float* X;
+        const float* Y;
+        float busy, len;
+    };
+
+    template <class Source>
+    void run(float* l, float* r, uint32_t n, float wet, float sampleRate, Source source)
+    {
         wet = std::clamp(wet, 0.0f, 1.0f);
-        if (!pic || pic->busy.empty() || wet <= 0) {
-            gl = gr = 1;
-            lpL = lpR = 0;
-            primed = false;
+        if (wet <= 0) {
+            reset();
             return;
         }
         const float smoothG = 1.0f - std::exp(-1.0f / (0.004f * sampleRate));   // no clicks at outline jumps
         const float smoothC = 1.0f - std::exp(-1.0f / (0.03f * sampleRate));
         const float dt = 1.0f / sampleRate;
         for (uint32_t i = 0; i < n; ++i) {
-            const size_t f = pic->frameAt(t);
-            const float len = std::max(pic->frameLength(f), 0.02f);
+            const Shape sh = source(t);
+            const float len = std::max(sh.len, 0.02f);
             phase += dt / len;
             if (phase >= 1) phase -= std::floor(phase);
             const float p = phase * PictureMod::kN;
             const int k0 = (int)p % PictureMod::kN, k1 = (k0 + 1) % PictureMod::kN;
             const float a = p - std::floor(p);
-            const float* X = &pic->x[f * PictureMod::kN];
-            const float* Y = &pic->y[f * PictureMod::kN];
-            const float vx = X[k0] + (X[k1] - X[k0]) * a, vy = Y[k0] + (Y[k1] - Y[k0]) * a;
+            const float vx = sh.X[k0] + (sh.X[k1] - sh.X[k0]) * a, vy = sh.Y[k0] + (sh.Y[k1] - sh.Y[k0]) * a;
             // -0.8..0.8 -> 30%..100% level (only ever turns down, never clips)
             const float tl = 1.0f - 0.7f * (0.8f - std::clamp(vx, -0.8f, 0.8f)) / 1.6f;
             const float tr = 1.0f - 0.7f * (0.8f - std::clamp(vy, -0.8f, 0.8f)) / 1.6f;
-            // busy frame = bright, sparse = dark: 400 Hz .. 16 kHz
-            const float cutoff = 400.0f * std::pow(40.0f, pic->busy[f]);
+            // busy = bright, sparse = dark: 400 Hz .. 16 kHz
+            const float cutoff = 400.0f * std::pow(40.0f, sh.busy);
             const float tc = 1.0f - std::exp(-6.2831853f * std::min(cutoff, 0.45f * sampleRate) / sampleRate);
             if (!primed) {
                 gl = tl; gr = tr; coef = tc;
@@ -103,7 +134,6 @@ public:
         if (t > 1e6) t = 0;
     }
 
-private:
     double t = 0;
     float phase = 0, gl = 1, gr = 1, coef = 1, lpL = 0, lpR = 0;
     bool primed = false;
