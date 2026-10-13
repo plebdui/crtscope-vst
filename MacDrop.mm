@@ -20,7 +20,7 @@ static NSURL* firstFile(id<NSDraggingInfo> info)
     return urls.count ? urls[0] : nil;
 }
 
-static NSDragOperation dragEntered(id self, SEL, id<NSDraggingInfo> info)
+static NSDragOperation dragEntered(id, SEL, id<NSDraggingInfo> info)
 {
     return firstFile(info) ? NSDragOperationCopy : NSDragOperationNone;
 }

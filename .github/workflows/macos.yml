@@ -38,6 +38,19 @@ jobs:
           auval -a | grep -i "crts" || true
           auval -strict -v aufx CrtS Pleb
 
+      - name: Open the window in a test host
+        run: |
+          clang++ -fobjc-arc -std=c++17 tests/mac_auhost.mm -framework Cocoa -framework AudioToolbox \
+            -framework AudioUnit -framework CoreAudioKit -o mac_auhost
+          mkdir -p shots
+          CRTSCOPE_DUMP=$PWD/shots/window.ppm ./mac_auhost
+          ls -la shots
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-window-snapshots
+          path: shots
+
       - name: Zip
         run: |
           cd bin
