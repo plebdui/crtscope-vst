@@ -634,6 +634,7 @@ int main(int argc, char** argv)
     static Frame frame;
     v3_cpp_obj(view)->set_frame(view, (v3_plugin_frame**)&frame);
     CHECK(v3_cpp_obj(view)->attached(view, win, "HWND") == V3_OK, "attached");
+    const double opened = now();
     std::printf("window open, streaming audio...\n");
     pump(4.0);
     if (const char* shot = std::getenv("MINIHOST_SHOT")) saveWindow(win, (std::string(shot) + "1.bmp").c_str());
@@ -731,6 +732,7 @@ int main(int argc, char** argv)
         PostMessageA(child, WM_LBUTTONUP, 0, midiSw);
         pump(1.0);
         const bool midiOn = gLastParam == 12 && gLastValue == 1.0;
+        std::printf("(%.1f s after the window opened: MIDI on, no note yet)\n", now() - opened);
         gPeak = 0;
         pump(0.5);
         const float quiet = gPeak;
@@ -739,6 +741,7 @@ int main(int argc, char** argv)
         gPeak = 0;
         pump(0.5);
         const float playing = gPeak;
+        std::printf("(%.1f s after the window opened: note A3 held)\n", now() - opened);
         gNoteOff = 57;
         pump(1.0);
         gPeak = 0;

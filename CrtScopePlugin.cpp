@@ -212,13 +212,17 @@ void CrtScopePlugin::run(const float** inputs, float** outputs, uint32_t frames,
             continue;
         const uint8_t* m = midiEvents[e].data;
         const uint8_t status = m[0] & 0xF0;
-        if (status == 0x90)
+        if (status == 0x90) {
             fSynth.noteOn(m[1], m[2]);
+            if (m[2] > 0)
+                midiNotes.fetch_add(1, std::memory_order_relaxed);
+        }
         else if (status == 0x80)
             fSynth.noteOff(m[1]);
         else if (status == 0xB0 && (m[1] == 120 || m[1] == 123))
             fSynth.allNotesOff();
     }
+    midiHeld.store(fSynth.heldNote(), std::memory_order_relaxed);
 }
 
 Plugin* createPlugin()

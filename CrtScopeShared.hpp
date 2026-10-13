@@ -58,6 +58,9 @@ public:
     CrtScopePlugin();
     ~CrtScopePlugin() override;
     AudioRing ring;
+    // MIDI arriving, for the window: notes received so far, and the one held (-1 none)
+    std::atomic<uint32_t> midiNotes{0};
+    std::atomic<int> midiHeld{-1};
 
 protected:
     const char* getLabel() const override { return "CRTScope"; }

@@ -77,6 +77,7 @@ public:
             }
     }
     void allNotesOff() { held = 0; }
+    int heldNote() const { return held ? notes[held - 1] : -1; }
 
 private:
     template <class Source>

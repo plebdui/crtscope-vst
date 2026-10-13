@@ -33,8 +33,11 @@ The audio passes through untouched, unless you turn on FLAWS or load a picture.
 - **MIDI** switch: SHAPE follows MIDI notes instead of the input, like a
   synth. The last held note sets the pitch, velocity the level (full velocity
   peaks just under full scale), and the shape
-  goes quiet when you let go. In FL, route a MIDI out or a piano roll channel
-  to the plugin. On Mac, use **CRT Scope MIDI** in Logic (under MIDI-controlled
+  goes quiet when you let go. The tube shows the note being played and the
+  lamp under MIDI blinks with each note; "MIDI ON: NO NOTES ARRIVING" means
+  the host isn't sending any. In FL: open the plugin's gear menu and set its
+  **MIDI input port** to a number, add a **MIDI Out** channel set to the same
+  port, and play or draw notes on that channel. On Mac, use **CRT Scope MIDI** in Logic (under MIDI-controlled
   Effects); the plain CRT Scope AU, the one GarageBand lists, gets no MIDI.
 - **Controls** along the bottom, all automatable:
   - **knobs** (GLOW, BEAM, GAIN, WET, SWEEP, SHAPE): drag up/down or scroll to turn,
