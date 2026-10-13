@@ -5,7 +5,7 @@
 START_NAMESPACE_DISTRHO
 
 // flaws default off: dropping the scope on a track shouldn't change the sound
-static const float kDefaults[kParamCount] = {0, 0, 1, 1, 1, 1, 1, 0, 20, 1, 0};
+static const float kDefaults[kParamCount] = {0, 0, 1, 1, 1, 1, 1, 0, 20, 1, 0, 0};
 
 CrtScopePlugin::CrtScopePlugin()
     : Plugin(kParamCount, 0, 1)
@@ -136,6 +136,10 @@ void CrtScopePlugin::initParameter(uint32_t index, Parameter& p)
         p.name = "Wet"; p.symbol = "wet"; p.unit = "%";
         p.ranges.min = 0; p.ranges.max = 1;
         break;
+    case kShape:
+        p.name = "Shape"; p.symbol = "shape"; p.unit = "%";
+        p.ranges.min = 0; p.ranges.max = 1;
+        break;
     }
 }
 
@@ -164,7 +168,8 @@ void CrtScopePlugin::run(const float** inputs, float** outputs, uint32_t frames)
     // tube flaws (hum, drift, flicker) on the sound too; OFF = untouched
     fAmp.process(inputs[0], inputs[1], outputs[0], outputs[1], frames,
                  (int)std::lround(fParams[kFlaws]), fParams[kWet], (float)getSampleRate());
-    // in IMAGE and EQUATION modes the shape on the tube shapes the sound as well
+    // in IMAGE and EQUATION modes the shape on the tube shapes the sound as well,
+    // and SHAPE blends in the shape itself played as sound (oscilloscope music)
     const int mode = (int)std::lround(fParams[kMode]);
     const float sr = (float)getSampleRate();
     if (mode == kModeEquation) {
@@ -177,9 +182,13 @@ void CrtScopePlugin::run(const float** inputs, float** outputs, uint32_t frames)
         fEqTime = std::fmod(fEqTime + frames / (double)sr, 3600.0);
         fPicFx.process(outputs[0], outputs[1], frames, fEqX, fEqY, std::min(1.0f, len / 16.0f), 0.25f,
                        fParams[kWet], sr);
+        fSynth.process(outputs[0], outputs[1], frames, fEqX, fEqY, fParams[kShape], sr);
+    } else if (mode == kModeImage) {
+        const crt::PictureMod* pic = fPic.load(std::memory_order_acquire);
+        fPicFx.process(outputs[0], outputs[1], frames, pic, fParams[kWet], sr);
+        fSynth.process(outputs[0], outputs[1], frames, pic, fParams[kShape], sr);
     } else {
-        fPicFx.process(outputs[0], outputs[1], frames, mode == kModeImage ? fPic.load(std::memory_order_acquire) : nullptr,
-                       fParams[kWet], sr);
+        fPicFx.process(outputs[0], outputs[1], frames, nullptr, fParams[kWet], sr);
     }
 }
 

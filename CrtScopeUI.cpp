@@ -134,11 +134,11 @@ static const Button kButtons[] = {
     {kMode, "MODE", kSelect},     {kPhosphor, "PHOSPHOR", kSelect}, {kAfterglow, "GLOW", kKnob},
     {kIntensity, "BEAM", kKnob},  {kGain, "GAIN", kKnob},           {kAutoGain, "AUTO", kSwitch},
     {kGraticule, "GRID", kSwitch}, {kFlaws, "FLAWS", kSelect},      {kWet, "WET", kKnob},
-    {kSweep, "SWEEP", kKnob},
+    {kSweep, "SWEEP", kKnob},     {kShape, "SHAPE", kKnob},
 };
 static constexpr int kNumButtons = sizeof(kButtons) / sizeof(kButtons[0]);
 // how wide each button is, relative (phosphor names are long)
-static const float kWeights[kNumButtons] = {1.0f, 1.9f, 0.9f, 0.9f, 0.9f, 0.8f, 0.8f, 1.0f, 0.8f, 1.0f};
+static const float kWeights[kNumButtons] = {1.0f, 1.9f, 0.9f, 0.9f, 0.9f, 0.8f, 0.8f, 1.0f, 0.8f, 1.0f, 0.9f};
 
 class CrtScopeUI : public UI {
 public:
@@ -535,17 +535,17 @@ private:
     // knobs: where the value sits on the dial, 0..1 (multipliers turn on a log scale)
     static float toNorm(uint32_t p, float v)
     {
-        if (p == kWet) return std::clamp(v, 0.0f, 1.0f);
+        if (p == kWet || p == kShape) return std::clamp(v, 0.0f, 1.0f);
         const float lo = p == kSweep ? 1.0f : 0.05f, hi = p == kSweep ? 200.0f : 20.0f;
         return std::clamp(std::log(std::max(v, lo) / lo) / std::log(hi / lo), 0.0f, 1.0f);
     }
     static float fromNorm(uint32_t p, float n)
     {
-        if (p == kWet) return n;
+        if (p == kWet || p == kShape) return n;
         const float lo = p == kSweep ? 1.0f : 0.05f, hi = p == kSweep ? 200.0f : 20.0f;
         return lo * std::pow(hi / lo, n);
     }
-    static float knobDefault(uint32_t p) { return p == kSweep ? 20.0f : 1.0f; }
+    static float knobDefault(uint32_t p) { return p == kSweep ? 20.0f : p == kShape ? 0.0f : 1.0f; }
 
     void setValue(uint32_t p, float v)
     {
@@ -567,7 +567,8 @@ private:
         case kAutoGain:
         case kGraticule: v = v > 0.5f ? 0.0f : 1.0f; break;
         case kSweep:     v = std::clamp(v * (dir > 0 ? 1.5f : 1 / 1.5f), 1.0f, 200.0f); break;
-        case kWet:       v = std::clamp(std::round(v * 20 + dir) / 20, 0.0f, 1.0f); break;
+        case kWet:
+        case kShape:     v = std::clamp(std::round(v * 20 + dir) / 20, 0.0f, 1.0f); break;
         default:         v = std::clamp(v * (dir > 0 ? 1.25f : 0.8f), 0.05f, 20.0f); break;
         }
         fValues[p] = v;
@@ -623,7 +624,8 @@ private:
         case kAutoGain:
         case kGraticule: std::snprintf(out, n, "%s", v > 0.5f ? "ON" : "OFF"); break;
         case kSweep:     std::snprintf(out, n, "%.1f ms", v); break;
-        case kWet:       std::snprintf(out, n, "%d%%", (int)std::lround(v * 100)); break;
+        case kWet:
+        case kShape:     std::snprintf(out, n, "%d%%", (int)std::lround(v * 100)); break;
         default:         std::snprintf(out, n, "%.2fx", v); break;
         }
     }
@@ -646,7 +648,8 @@ private:
             buttonRect(b, x, w);
             const uint32_t p = kButtons[b].param;
             const bool dim = (p == kSweep && std::lround(fValues[kMode]) != crt::kWave)
-                          || (p == kWet && std::lround(fValues[kFlaws]) == 0 && !picture);
+                          || (p == kWet && std::lround(fValues[kFlaws]) == 0 && !picture)
+                          || (p == kShape && !picture);
             const Color col = dim ? off : accent;
             const float cx = x + w / 2, cy = y0 + 44 * scale;
             beginPath();

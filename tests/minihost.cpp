@@ -606,7 +606,7 @@ int main(int argc, char** argv)
     const bool modeClicked = gEdits > 0 && gLastParam == 0;
 
     // ---- turn the GLOW knob: press on it, drag up, let go
-    const int knobX = (int)(cr.right * 2.9 / 10.0 + cr.right * 0.9 / 10.0 / 2), knobY = cr.bottom - 84 + 44;
+    const int knobX = (int)(cr.right * (2.9 + 0.45) / 10.9), knobY = cr.bottom - 84 + 44;  // strip column weights add up to 10.9
     PostMessageA(child, WM_MOUSEMOVE, 0, MAKELPARAM(knobX, knobY));
     PostMessageA(child, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(knobX, knobY));
     for (int i = 1; i <= 10; ++i) {
@@ -663,6 +663,20 @@ int main(int argc, char** argv)
         std::printf("EQUATION mode: %s, clicking the tube -> param %d = %.3f\n", eqMode ? "on" : "NOT ON",
                     gLastParam.load(), gLastValue.load());
         dropped = dropped && eqMode && gLastParam == 10 && std::fabs(gLastValue - 0.1) < 1e-6;
+
+        // ---- turn SHAPE (last knob) all the way up: the curve itself becomes the sound
+        const int shapeX = (int)(cr.right * (10.0 + 0.45) / 10.9);
+        PostMessageA(child, WM_MOUSEMOVE, 0, MAKELPARAM(shapeX, knobY));
+        PostMessageA(child, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(shapeX, knobY));
+        for (int i = 1; i <= 10; ++i) {
+            PostMessageA(child, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(shapeX, knobY - i * 25));
+            pump(0.05);
+        }
+        PostMessageA(child, WM_LBUTTONUP, 0, MAKELPARAM(shapeX, knobY - 250));
+        pump(1.0);
+        const bool shapeUp = gLastParam == 11 && gLastValue == 1.0;
+        std::printf("after dragging SHAPE up: param %d -> %.3f\n", gLastParam.load(), gLastValue.load());
+        dropped = dropped && shapeUp;
 
         // ---- drop a second picture (argv[3], or the same one again): it should replace the first
         const char* second = argc > 3 ? argv[3] : argv[2];
