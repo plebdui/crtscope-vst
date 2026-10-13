@@ -2,7 +2,7 @@
 
 The [crtscope](https://github.com/plebdui/crtscope) tube as a plugin: put it on a
 mixer track and its window draws that track's sound as a 1960s CRT oscilloscope.
-The audio passes through untouched, unless you turn on FLAWS.
+The audio passes through untouched, unless you turn on FLAWS or load a picture.
 
 <p align="center">
   <img src="screenshots/modes.gif" width="100%" alt="XY, goniometer and waveform modes moving on the tube">
@@ -17,10 +17,13 @@ The audio passes through untouched, unless you turn on FLAWS.
 - **Pictures:** drag a GIF, PNG, JPG or BMP onto the window (or click the tube
   in IMAGE mode to pick one) and the beam traces its outlines; GIFs animate and
   the music shakes the picture. The file is saved with your FL project.
+- **The picture shapes the sound** in IMAGE mode: the beam's path around the
+  outline becomes a tremolo (left/right moves the left channel, up/down the
+  right), and busy frames sound bright, sparse ones dark. GIFs change it every frame.
 - **Phosphors:** P7 radar, P1 green, P12 orange, P31, plus 15 Apple II colours
 - **FLAWS** (off / subtle / worn): an old tube's 60Hz mains hum, drift and
   flicker, on the picture and on the sound (hum ~41 dB / ~29 dB under the music)
-- **WET** (0-100%): how much of the flaws reach the sound
+- **WET** (0-100%): how much of the flaws and the picture reach the sound
 - **Controls** along the bottom: left-click or scroll up = next / more,
   right-click or scroll down = back / less. All of them are automatable.
 

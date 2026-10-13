@@ -506,6 +506,9 @@ int main(int argc, char** argv)
     std::atomic<bool> running{true};
     std::atomic<int> blocks{0};
     std::atomic<bool> audioOk{true};
+    // a dropped picture shapes the sound (and so does one in a reopened project)
+    std::atomic<bool> expectClean{true}, changed{false};
+    bool reloaded = false;
     std::thread audio([&] {
         std::vector<float> inL(512), inR(512), outL(512), outR(512);
         float* ins[2] = {inL.data(), inR.data()};
@@ -538,7 +541,10 @@ int main(int argc, char** argv)
             d.num_input_buses = 1; d.num_output_buses = 1; d.inputs = &in; d.outputs = &out;
             if (v3_cpp_obj(proc)->process(proc, &d) != V3_OK) audioOk = false;
             for (int i = 0; i < 512; ++i)
-                if (outL[i] != inL[i] || outR[i] != inR[i]) audioOk = false;  // must pass audio through untouched
+                if (outL[i] != inL[i] || outR[i] != inR[i]) {
+                    if (expectClean) audioOk = false;  // must pass audio through untouched
+                    else changed = true;
+                }
             ++blocks;
             const double wait = start + blocks * 512 / 48000.0 - now();
             if (wait > 0) Sleep((DWORD)(wait * 1000));
@@ -558,6 +564,8 @@ int main(int argc, char** argv)
         st.pos = 0;
         v3_cpp_obj(ctrl)->set_component_state(ctrl, (v3_bstream**)&st);
         std::printf("loaded saved state (%zu bytes)\n", st.data.size());
+        reloaded = true;
+        expectClean = false;
     }
 
     // ---- open the plugin window inside a host window
@@ -610,11 +618,14 @@ int main(int argc, char** argv)
         SetCursorPos((sr.left + sr.right) / 2, (sr.top + sr.bottom) / 2 - 40);
         pump(0.3);
         DWORD effect = 0;
+        expectClean = false;
         const HRESULT hr = DoDragDrop(&file, &hand, DROPEFFECT_COPY, &effect);
         std::printf("drag and drop: hr=0x%lx effect=%lu, param %d -> %.3f\n", (unsigned long)hr, effect,
                     gLastParam.load(), gLastValue.load());
         dropped = hr == DRAGDROP_S_DROP && effect == DROPEFFECT_COPY && gLastParam == 0 && gLastValue == 1.0;  // 1.0 = last mode, IMAGE
         pump(6.0);  // trace it and show it
+        std::printf("sound after the drop: %s\n", changed ? "shaped by the picture" : "UNCHANGED");
+        dropped = dropped && changed;
         if (const char* shot = std::getenv("MINIHOST_SHOT")) saveWindow(win, (std::string(shot) + "3.bmp").c_str());
 
         // the project should now remember the file
@@ -650,6 +661,8 @@ int main(int argc, char** argv)
     if (auto exitDll = (bool (*)())GetProcAddress(lib, "ExitDll")) exitDll();
     FreeLibrary(lib);
     CHECK(audioOk, "audio passthrough");
+    if (reloaded) std::printf("sound after reopening: %s\n", changed ? "shaped by the picture" : "UNCHANGED");
+    CHECK(!reloaded || changed, "a reopened project's picture should shape the sound");
     CHECK(modeClicked, "clicking MODE should change parameter 0");
     CHECK(dropped, "dropping a picture should switch to IMAGE mode");
     CHECK(saved, "the dropped picture should be saved with the project");

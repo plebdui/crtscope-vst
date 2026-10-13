@@ -13,6 +13,46 @@ CrtScopePlugin::CrtScopePlugin()
     std::memcpy(fParams, kDefaults, sizeof(fParams));
 }
 
+CrtScopePlugin::~CrtScopePlugin()
+{
+    stopLoading();
+}
+
+void CrtScopePlugin::stopLoading()
+{
+    fLoadCancel.store(true);
+    if (fLoadThread.joinable())
+        fLoadThread.join();
+    fLoadCancel.store(false);
+}
+
+// A picture was dropped (or a project reopened): trace it for the sound
+void CrtScopePlugin::setState(const char* key, const char* value)
+{
+    if (std::strcmp(key, "image") != 0 || fPicPath == value)
+        return;
+    fPicPath = value;
+    stopLoading();
+    std::lock_guard<std::mutex> lock(fPicLock);
+    if (!*value) {
+        fPic.store(nullptr, std::memory_order_release);
+        fPicOld = std::move(fPicCur);
+        return;
+    }
+    const std::string path = value;
+    fLoadThread = std::thread([this, path] {
+        crt::Picture pic;
+        std::atomic<int> percent{0};
+        if (!crt::loadPicture(path, pic, fLoadCancel, percent).empty() || fLoadCancel.load())
+            return;
+        std::unique_ptr<crt::PictureMod> mod(new crt::PictureMod(pic));
+        std::lock_guard<std::mutex> lock(fPicLock);
+        fPic.store(mod.get(), std::memory_order_release);
+        fPicOld = std::move(fPicCur);
+        fPicCur = std::move(mod);
+    });
+}
+
 void CrtScopePlugin::initAudioPort(bool input, uint32_t index, AudioPort& port)
 {
     port.groupId = kPortGroupStereo;
@@ -109,6 +149,10 @@ void CrtScopePlugin::run(const float** inputs, float** outputs, uint32_t frames)
     // tube flaws (hum, drift, flicker) on the sound too; OFF = untouched
     fAmp.process(inputs[0], inputs[1], outputs[0], outputs[1], frames,
                  (int)std::lround(fParams[kFlaws]), fParams[kWet], (float)getSampleRate());
+    // in IMAGE mode the picture shapes the sound as well
+    const bool image = std::lround(fParams[kMode]) == 3;
+    fPicFx.process(outputs[0], outputs[1], frames, image ? fPic.load(std::memory_order_acquire) : nullptr,
+                   fParams[kWet], (float)getSampleRate());
 }
 
 Plugin* createPlugin()

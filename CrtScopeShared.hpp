@@ -4,6 +4,10 @@
 
 #include "DistrhoPlugin.hpp"
 #include "TubeAmp.hpp"
+#include "PictureFx.hpp"
+#include <memory>
+#include <mutex>
+#include <thread>
 #include <atomic>
 
 START_NAMESPACE_DISTRHO
@@ -44,6 +48,7 @@ struct AudioRing {
 class CrtScopePlugin : public Plugin {
 public:
     CrtScopePlugin();
+    ~CrtScopePlugin() override;
     AudioRing ring;
 
 protected:
@@ -62,12 +67,23 @@ protected:
     float getParameterValue(uint32_t index) const override;
     void setParameterValue(uint32_t index, float value) override;
     void initState(uint32_t index, State& state) override;
-    void setState(const char*, const char*) override {}  // only the window uses the picture path
+    void setState(const char* key, const char* value) override;
     void run(const float** inputs, float** outputs, uint32_t frames) override;
 
 private:
     float fParams[kParamCount];
     crt::TubeAmp fAmp;
+    crt::PictureFx fPicFx;
+    // the picture for the sound, traced on its own thread and handed to the
+    // audio thread through fPic. The one before stays alive until the next
+    // load, in case the audio thread is still finishing a block with it.
+    std::atomic<crt::PictureMod*> fPic{nullptr};
+    std::unique_ptr<crt::PictureMod> fPicCur, fPicOld;
+    std::mutex fPicLock;
+    std::thread fLoadThread;
+    std::atomic<bool> fLoadCancel{false};
+    std::string fPicPath;
+    void stopLoading();
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CrtScopePlugin)
 };
 
