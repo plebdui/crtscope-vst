@@ -23,14 +23,15 @@ The audio passes through untouched, unless you turn on FLAWS or load a picture.
 - **Phosphors:** P7 radar, P1 green, P12 orange, P31, plus 15 Apple II colours
 - **FLAWS** (off / subtle / worn): an old tube's 60Hz mains hum, drift and
   flicker, on the picture and on the sound (hum ~41 dB / ~29 dB under the music)
-- **WET** (0-100%): how much of the flaws and the picture reach the sound
+- **FILTER** (0-100%): how much the flaws and the picture shape the sound (the
+  picture works like a moving filter and tremolo)
 - **SHAPE** (0-100%): plays the picture or equation *as* sound, like
   oscilloscope music (left = x, right = y). Its pitch follows the note in the
   incoming audio and it plays about as loud as the input on average (peaks kept
   just under full scale). 0% = only your input, 100% = only the shape. Curves with several loops (a 3:2 Lissajous,
   a rose) sound in harmonics above the tracked note.
 - **Controls** along the bottom, all automatable:
-  - **knobs** (GLOW, BEAM, GAIN, WET, SWEEP, SHAPE): drag up/down or scroll to turn,
+  - **knobs** (GLOW, BEAM, GAIN, FILTER, SWEEP, SHAPE): drag up/down or scroll to turn,
     right-click to reset
   - **switches** (AUTO, GRID): click to flip
   - **selectors** (MODE, PHOSPHOR, FLAWS): left-click / scroll up = next,
@@ -44,7 +45,7 @@ The audio passes through untouched, unless you turn on FLAWS or load a picture.
 
 EQUATION mode draws built-in parametric curves. Click the left or right half
 of the tube (or scroll on it) to change curve; it's also an automatable
-parameter. Like pictures, the curve shapes the sound passing through (WET sets
+parameter. Like pictures, the curve shapes the sound passing through (FILTER sets
 how much), and SHAPE plays the curve itself as sound.
 
 **Static:** rose, heart, butterfly, spirograph, Lissajous knot, infinity

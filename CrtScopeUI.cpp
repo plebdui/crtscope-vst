@@ -133,7 +133,7 @@ struct Button {
 static const Button kButtons[] = {
     {kMode, "MODE", kSelect},     {kPhosphor, "PHOSPHOR", kSelect}, {kAfterglow, "GLOW", kKnob},
     {kIntensity, "BEAM", kKnob},  {kGain, "GAIN", kKnob},           {kAutoGain, "AUTO", kSwitch},
-    {kGraticule, "GRID", kSwitch}, {kFlaws, "FLAWS", kSelect},      {kWet, "WET", kKnob},
+    {kGraticule, "GRID", kSwitch}, {kFlaws, "FLAWS", kSelect},      {kWet, "FILTER", kKnob},
     {kSweep, "SWEEP", kKnob},     {kShape, "SHAPE", kKnob},
 };
 static constexpr int kNumButtons = sizeof(kButtons) / sizeof(kButtons[0]);

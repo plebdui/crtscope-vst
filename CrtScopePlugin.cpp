@@ -133,7 +133,7 @@ void CrtScopePlugin::initParameter(uint32_t index, Parameter& p)
         break;
     }
     case kWet:
-        p.name = "Wet"; p.symbol = "wet"; p.unit = "%";
+        p.name = "Filter"; p.symbol = "wet";  // symbol kept so saved projects still load p.unit = "%";
         p.ranges.min = 0; p.ranges.max = 1;
         break;
     case kShape:
