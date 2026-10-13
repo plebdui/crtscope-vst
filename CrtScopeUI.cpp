@@ -119,17 +119,20 @@ private:
 #endif
 
 static constexpr uint kTubeSize = 640;
-static constexpr uint kStrip = 46;
+static constexpr uint kStrip = 84;
 
+// selectors step through choices, knobs turn (drag up/down), switches flip
+enum Kind { kSelect, kKnob, kSwitch };
 struct Button {
     uint32_t param;
     const char* caption;
+    Kind kind;
 };
 static const Button kButtons[] = {
-    {kMode, "MODE"},     {kPhosphor, "PHOSPHOR"}, {kAfterglow, "GLOW"},
-    {kIntensity, "BEAM"}, {kGain, "GAIN"},         {kAutoGain, "AUTO"},
-    {kGraticule, "GRID"}, {kFlaws, "FLAWS"},       {kWet, "WET"},
-    {kSweep, "SWEEP"},
+    {kMode, "MODE", kSelect},     {kPhosphor, "PHOSPHOR", kSelect}, {kAfterglow, "GLOW", kKnob},
+    {kIntensity, "BEAM", kKnob},  {kGain, "GAIN", kKnob},           {kAutoGain, "AUTO", kSwitch},
+    {kGraticule, "GRID", kSwitch}, {kFlaws, "FLAWS", kSelect},      {kWet, "WET", kKnob},
+    {kSweep, "SWEEP", kKnob},
 };
 static constexpr int kNumButtons = sizeof(kButtons) / sizeof(kButtons[0]);
 // how wide each button is, relative (phosphor names are long)
@@ -280,8 +283,13 @@ protected:
 
     bool onMouse(const MouseEvent& ev) override
     {
-        if (!ev.press)
-            return false;
+        if (!ev.press) {
+            if (fDrag < 0)
+                return false;
+            editParameter(kButtons[fDrag].param, false);
+            fDrag = -1;
+            return true;
+        }
         const int b = buttonAt(ev.pos.getX(), ev.pos.getY());
         if (b < 0) {
             if (fTube.mode != crt::kImage || ev.button != 1)
@@ -291,7 +299,33 @@ protected:
             openFileBrowser(opts);
             return true;
         }
+        if (kButtons[b].kind == kKnob) {
+            const uint32_t p = kButtons[b].param;
+            if (ev.button == 3) {  // right-click: back to the default
+                editParameter(p, true);
+                setValue(p, knobDefault(p));
+                editParameter(p, false);
+                return true;
+            }
+            if (ev.button != 1)
+                return false;
+            fDrag = b;  // left: drag up/down to turn
+            fDragY = ev.pos.getY();
+            fDragNorm = toNorm(p, fValues[p]);
+            editParameter(p, true);
+            return true;
+        }
         nudge(b, ev.button == 3 ? -1 : 1);  // right button goes back
+        return true;
+    }
+
+    bool onMotion(const MotionEvent& ev) override
+    {
+        if (fDrag < 0)
+            return false;
+        const uint32_t p = kButtons[fDrag].param;
+        const float n = std::clamp(fDragNorm + (float)(fDragY - ev.pos.getY()) / (200.0f * (float)getScaleFactor()), 0.0f, 1.0f);
+        setValue(p, fromNorm(p, n));
         return true;
     }
 
@@ -423,6 +457,33 @@ private:
         fTube.sweepMs = fValues[kSweep];
     }
 
+    int fDrag = -1;
+    double fDragY = 0;
+    float fDragNorm = 0;
+
+    // knobs: where the value sits on the dial, 0..1 (multipliers turn on a log scale)
+    static float toNorm(uint32_t p, float v)
+    {
+        if (p == kWet) return std::clamp(v, 0.0f, 1.0f);
+        const float lo = p == kSweep ? 1.0f : 0.05f, hi = p == kSweep ? 200.0f : 20.0f;
+        return std::clamp(std::log(std::max(v, lo) / lo) / std::log(hi / lo), 0.0f, 1.0f);
+    }
+    static float fromNorm(uint32_t p, float n)
+    {
+        if (p == kWet) return n;
+        const float lo = p == kSweep ? 1.0f : 0.05f, hi = p == kSweep ? 200.0f : 20.0f;
+        return lo * std::pow(hi / lo, n);
+    }
+    static float knobDefault(uint32_t p) { return p == kSweep ? 20.0f : 1.0f; }
+
+    void setValue(uint32_t p, float v)
+    {
+        fValues[p] = v;
+        apply();
+        setParameterValue(p, v);
+        repaint();
+    }
+
     // Change a setting by one step and tell the host (so FL records automation)
     void nudge(int b, int dir)
     {
@@ -435,7 +496,7 @@ private:
         case kAutoGain:
         case kGraticule: v = v > 0.5f ? 0.0f : 1.0f; break;
         case kSweep:     v = std::clamp(v * (dir > 0 ? 1.5f : 1 / 1.5f), 1.0f, 200.0f); break;
-        case kWet:       v = std::clamp(std::round(v * 10 + dir) / 10, 0.0f, 1.0f); break;
+        case kWet:       v = std::clamp(std::round(v * 20 + dir) / 20, 0.0f, 1.0f); break;
         default:         v = std::clamp(v * (dir > 0 ? 1.25f : 0.8f), 0.05f, 20.0f); break;
         }
         fValues[p] = v;
@@ -504,29 +565,113 @@ private:
         fill();
         const crt::Phosphor& ph = crt::phosphors()[std::clamp((int)std::lround(fValues[kPhosphor]), 0, 18)];
         const Color accent((int)ph.glow[0], (int)ph.glow[1], (int)ph.glow[2]);
+        const Color label(120, 128, 124), off(80, 84, 82);
         fontFace(NANOVG_DEJAVU_SANS_TTF);
         textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
         char buf[48];
+        const bool picture = std::lround(fValues[kMode]) == crt::kImage && fPic;
         for (int b = 0; b < kNumButtons; ++b) {
             float x, w;
             buttonRect(b, x, w);
-            const bool dim = (kButtons[b].param == kSweep && std::lround(fValues[kMode]) != crt::kWave)
-                          || (kButtons[b].param == kWet && std::lround(fValues[kFlaws]) == 0);
+            const uint32_t p = kButtons[b].param;
+            const bool dim = (p == kSweep && std::lround(fValues[kMode]) != crt::kWave)
+                          || (p == kWet && std::lround(fValues[kFlaws]) == 0 && !picture);
+            const Color col = dim ? off : accent;
+            const float cx = x + w / 2, cy = y0 + 44 * scale;
             beginPath();
             roundedRect(x + 2 * scale, y0 + 4 * scale, w - 4 * scale, h - 8 * scale, 4 * scale);
-            fillColor(Color(34, 36, 40));
+            fillColor(Color(30, 32, 36));
             fill();
-            strokeColor(Color(60, 62, 68));
+            strokeColor(Color(52, 54, 60));
             strokeWidth(1);
             stroke();
             fontSize(9 * scale);
-            fillColor(Color(120, 128, 124));
-            text(x + w / 2, y0 + 15 * scale, kButtons[b].caption, nullptr);
-            valueText(kButtons[b].param, buf, sizeof(buf));
-            fontSize(11.5f * scale);
-            fillColor(dim ? Color(80, 84, 82) : accent);
-            text(x + w / 2, y0 + 30 * scale, buf, nullptr);
+            fillColor(label);
+            text(cx, y0 + 15 * scale, kButtons[b].caption, nullptr);
+
+            if (kButtons[b].kind == kKnob) {
+                drawKnob(cx, cy, std::min(w * 0.27f, 15 * scale), toNorm(p, fValues[p]), col, scale);
+                valueText(p, buf, sizeof(buf));
+                fontSize(8.5f * scale);
+                fillColor(dim ? off : label);
+                text(cx, y0 + 70 * scale, buf, nullptr);
+            } else if (kButtons[b].kind == kSwitch) {
+                drawSwitch(cx, cy, fValues[p] > 0.5f, accent, scale);
+            } else {
+                // a little lit display window
+                const float dw = w - 14 * scale, dh = 22 * scale;
+                beginPath();
+                roundedRect(cx - dw / 2, cy - dh / 2, dw, dh, 3 * scale);
+                fillColor(Color(10, 12, 11));
+                fill();
+                strokeColor(Color(60, 62, 68));
+                stroke();
+                valueText(p, buf, sizeof(buf));
+                fontSize(11 * scale);
+                fillColor(col);
+                text(cx, cy, buf, nullptr);
+                fontSize(8 * scale);
+                fillColor(off);
+                text(cx, y0 + 70 * scale, "< click >", nullptr);
+            }
         }
+    }
+
+    // a dial: dark knob, a lit arc showing the setting, a pointer
+    void drawKnob(float cx, float cy, float r, float n, const Color& col, float scale)
+    {
+        const float a0 = 0.75f * 3.14159265f, a1 = 2.25f * 3.14159265f;
+        const float a = a0 + (a1 - a0) * n;
+        lineCap(ROUND);
+        beginPath();
+        arc(cx, cy, r + 4 * scale, a0, a1, CW);
+        strokeColor(Color(50, 53, 58));
+        strokeWidth(3 * scale);
+        stroke();
+        if (n > 0.002f) {
+            beginPath();
+            arc(cx, cy, r + 4 * scale, a0, a, CW);
+            strokeColor(col);
+            strokeWidth(3 * scale);
+            stroke();
+        }
+        beginPath();
+        circle(cx, cy, r);
+        fillPaint(radialGradient(cx - r * 0.3f, cy - r * 0.4f, r * 0.1f, r * 1.2f, Color(78, 80, 86), Color(26, 27, 30)));
+        fill();
+        strokeColor(Color(12, 12, 14));
+        strokeWidth(1);
+        stroke();
+        beginPath();
+        moveTo(cx + std::cos(a) * r * 0.25f, cy + std::sin(a) * r * 0.25f);
+        lineTo(cx + std::cos(a) * r * 0.85f, cy + std::sin(a) * r * 0.85f);
+        strokeColor(Color(225, 228, 222));
+        strokeWidth(2 * scale);
+        stroke();
+        lineCap(BUTT);
+    }
+
+    // a slide switch: the lever sits right and lights up when on
+    void drawSwitch(float cx, float cy, bool on, const Color& col, float scale)
+    {
+        const float w = 34 * scale, h = 16 * scale;
+        beginPath();
+        roundedRect(cx - w / 2, cy - h / 2, w, h, h / 2);
+        fillColor(on ? Color(col.red, col.green, col.blue, 0.35f) : Color(12, 13, 15));
+        fill();
+        strokeColor(on ? col : Color(60, 62, 68));
+        strokeWidth(1);
+        stroke();
+        const float kx = on ? cx + w / 2 - h / 2 : cx - w / 2 + h / 2;
+        beginPath();
+        circle(kx, cy, h / 2 - 2 * scale);
+        fillPaint(radialGradient(kx - 2 * scale, cy - 2 * scale, 1, h / 2, Color(235, 236, 232), Color(150, 152, 150)));
+        fill();
+        // little indicator lamp under the switch
+        beginPath();
+        circle(cx, cy + 16 * scale, 2.5f * scale);
+        fillColor(on ? col : Color(40, 42, 44));
+        fill();
     }
 
     DISTRHO_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CrtScopeUI)

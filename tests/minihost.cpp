@@ -605,6 +605,19 @@ int main(int argc, char** argv)
     std::printf("after clicking MODE: %d edit(s), param %d -> %.3f\n", gEdits.load(), gLastParam.load(), gLastValue.load());
     const bool modeClicked = gEdits > 0 && gLastParam == 0;
 
+    // ---- turn the GLOW knob: press on it, drag up, let go
+    const int knobX = (int)(cr.right * 2.9 / 10.0 + cr.right * 0.9 / 10.0 / 2), knobY = cr.bottom - 84 + 44;
+    PostMessageA(child, WM_MOUSEMOVE, 0, MAKELPARAM(knobX, knobY));
+    PostMessageA(child, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(knobX, knobY));
+    for (int i = 1; i <= 10; ++i) {
+        PostMessageA(child, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(knobX, knobY - i * 6));
+        pump(0.05);
+    }
+    PostMessageA(child, WM_LBUTTONUP, 0, MAKELPARAM(knobX, knobY - 60));
+    pump(0.5);
+    std::printf("after dragging GLOW up: param %d -> %.3f (default 1.0x = 0.048)\n", gLastParam.load(), gLastValue.load());
+    const bool knobTurned = gLastParam == 2 && gLastValue > 0.1;  // host value is linear: (v - 0.05) / 19.95
+
     // ---- drag a picture onto the window, like dropping a file from Explorer
     bool dropped = true, saved = true;
     if (argc > 2) {
@@ -664,6 +677,7 @@ int main(int argc, char** argv)
     if (reloaded) std::printf("sound after reopening: %s\n", changed ? "shaped by the picture" : "UNCHANGED");
     CHECK(!reloaded || changed, "a reopened project's picture should shape the sound");
     CHECK(modeClicked, "clicking MODE should change parameter 0");
+    CHECK(knobTurned, "dragging the GLOW knob up should raise parameter 2");
     CHECK(dropped, "dropping a picture should switch to IMAGE mode");
     CHECK(saved, "the dropped picture should be saved with the project");
     std::printf("ALL OK\n");

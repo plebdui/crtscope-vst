@@ -24,8 +24,12 @@ The audio passes through untouched, unless you turn on FLAWS or load a picture.
 - **FLAWS** (off / subtle / worn): an old tube's 60Hz mains hum, drift and
   flicker, on the picture and on the sound (hum ~41 dB / ~29 dB under the music)
 - **WET** (0-100%): how much of the flaws and the picture reach the sound
-- **Controls** along the bottom: left-click or scroll up = next / more,
-  right-click or scroll down = back / less. All of them are automatable.
+- **Controls** along the bottom, all automatable:
+  - **knobs** (GLOW, BEAM, GAIN, WET, SWEEP): drag up/down or scroll to turn,
+    right-click to reset
+  - **switches** (AUTO, GRID): click to flip
+  - **selectors** (MODE, PHOSPHOR, FLAWS): left-click / scroll up = next,
+    right-click / scroll down = back
 
 <p align="center">
   <img src="screenshots/window-image.png" width="45%" alt="A dropped GIF traced on the tube in IMAGE mode">
