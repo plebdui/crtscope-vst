@@ -5,7 +5,7 @@
 START_NAMESPACE_DISTRHO
 
 // flaws default off: dropping the scope on a track shouldn't change the sound
-static const float kDefaults[kParamCount] = {0, 0, 1, 1, 1, 1, 1, 0, 20, 1, 0, 0, 0};
+static const float kDefaults[kParamCount] = {0, 0, 1, 1, 1, 1, 1, 0, 20, 1, 0, 0};
 
 CrtScopePlugin::CrtScopePlugin()
     : Plugin(kParamCount, 0, 1)
@@ -140,11 +140,6 @@ void CrtScopePlugin::initParameter(uint32_t index, Parameter& p)
         p.name = "Shape"; p.symbol = "shape"; p.unit = "%";
         p.ranges.min = 0; p.ranges.max = 1;
         break;
-    case kMidi:
-        p.hints |= kParameterIsBoolean | kParameterIsInteger;
-        p.name = "Shape follows MIDI"; p.symbol = "midi";
-        p.ranges.min = 0; p.ranges.max = 1;
-        break;
     }
 }
 
@@ -167,8 +162,7 @@ void CrtScopePlugin::initState(uint32_t, State& state)
     state.defaultValue = "";
 }
 
-void CrtScopePlugin::run(const float** inputs, float** outputs, uint32_t frames,
-                         const MidiEvent* midiEvents, uint32_t midiEventCount)
+void CrtScopePlugin::run(const float** inputs, float** outputs, uint32_t frames)
 {
     ring.write(inputs[0], inputs[1], frames);  // the scope shows the clean input
     // tube flaws (hum, drift, flicker) on the sound too; OFF = untouched
@@ -178,7 +172,6 @@ void CrtScopePlugin::run(const float** inputs, float** outputs, uint32_t frames,
     // and SHAPE blends in the shape itself played as sound (oscilloscope music)
     const int mode = (int)std::lround(fParams[kMode]);
     const float sr = (float)getSampleRate();
-    const crt::PictureMod* pic = mode == kModeImage ? fPic.load(std::memory_order_acquire) : nullptr;
     if (mode == kModeEquation) {
         const int eq = (int)std::lround(fParams[kEquation]);
         float len = 0;
@@ -189,40 +182,14 @@ void CrtScopePlugin::run(const float** inputs, float** outputs, uint32_t frames,
         fEqTime = std::fmod(fEqTime + frames / (double)sr, 3600.0);
         fPicFx.process(outputs[0], outputs[1], frames, fEqX, fEqY, std::min(1.0f, len / 16.0f), 0.25f,
                        fParams[kWet], sr);
-    } else {
+        fSynth.process(outputs[0], outputs[1], frames, fEqX, fEqY, fParams[kShape], sr);
+    } else if (mode == kModeImage) {
+        const crt::PictureMod* pic = fPic.load(std::memory_order_acquire);
         fPicFx.process(outputs[0], outputs[1], frames, pic, fParams[kWet], sr);
+        fSynth.process(outputs[0], outputs[1], frames, pic, fParams[kShape], sr);
+    } else {
+        fPicFx.process(outputs[0], outputs[1], frames, nullptr, fParams[kWet], sr);
     }
-    // the shape as sound, cut at each MIDI note so notes start on the right sample
-    fSynth.setMidi(fParams[kMidi] > 0.5f);
-    uint32_t pos = 0;
-    for (uint32_t e = 0; e <= midiEventCount; ++e) {
-        const uint32_t end = e < midiEventCount ? std::min(midiEvents[e].frame, frames) : frames;
-        if (end > pos) {
-            float* l = outputs[0] + pos;
-            float* r = outputs[1] + pos;
-            if (mode == kModeEquation)
-                fSynth.process(l, r, end - pos, fEqX, fEqY, fParams[kShape], sr);
-            else if (mode == kModeImage)
-                fSynth.process(l, r, end - pos, pic, fParams[kShape], sr);
-            else
-                fSynth.listen(inputs[0] + pos, inputs[1] + pos, end - pos, sr);
-            pos = end;
-        }
-        if (e == midiEventCount || midiEvents[e].size > 3)
-            continue;
-        const uint8_t* m = midiEvents[e].data;
-        const uint8_t status = m[0] & 0xF0;
-        if (status == 0x90) {
-            fSynth.noteOn(m[1], m[2]);
-            if (m[2] > 0)
-                midiNotes.fetch_add(1, std::memory_order_relaxed);
-        }
-        else if (status == 0x80)
-            fSynth.noteOff(m[1]);
-        else if (status == 0xB0 && (m[1] == 120 || m[1] == 123))
-            fSynth.allNotesOff();
-    }
-    midiHeld.store(fSynth.heldNote(), std::memory_order_relaxed);
 }
 
 Plugin* createPlugin()

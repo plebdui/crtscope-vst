@@ -27,22 +27,12 @@ The audio passes through untouched, unless you turn on FLAWS or load a picture.
 - **SHAPE** (0-100%): plays the picture or equation *as* sound, like
   oscilloscope music (left = x, right = y). Its pitch follows the note in the
   incoming audio and it plays about as loud as the input on average (peaks kept
-  just under full scale). 0% = only your
-  input, 100% = only the shape. Curves with several loops (a 3:2 Lissajous,
+  just under full scale). 0% = only your input, 100% = only the shape. Curves with several loops (a 3:2 Lissajous,
   a rose) sound in harmonics above the tracked note.
-- **MIDI** switch: SHAPE follows MIDI notes instead of the input, like a
-  synth. The last held note sets the pitch, velocity the level (full velocity
-  peaks just under full scale), and the shape
-  goes quiet when you let go. The tube shows the note being played and the
-  lamp under MIDI blinks with each note; "MIDI ON: NO NOTES ARRIVING" means
-  the host isn't sending any. In FL: open the plugin's gear menu and set its
-  **MIDI input port** to a number, add a **MIDI Out** channel set to the same
-  port, and play or draw notes on that channel. On Mac, use **CRT Scope MIDI** in Logic (under MIDI-controlled
-  Effects); the plain CRT Scope AU, the one GarageBand lists, gets no MIDI.
 - **Controls** along the bottom, all automatable:
   - **knobs** (GLOW, BEAM, GAIN, WET, SWEEP, SHAPE): drag up/down or scroll to turn,
     right-click to reset
-  - **switches** (AUTO, GRID, MIDI): click to flip
+  - **switches** (AUTO, GRID): click to flip
   - **selectors** (MODE, PHOSPHOR, FLAWS): left-click / scroll up = next,
     right-click / scroll down = back
 
@@ -87,17 +77,15 @@ Intel and Apple Silicon), unzip it, then in Terminal:
 
 ```sh
 cd ~/Downloads
-cp -R CRT-Scope.component CRT-Scope-MIDI.component ~/Library/Audio/Plug-Ins/Components/
+cp -R CRT-Scope.component ~/Library/Audio/Plug-Ins/Components/
 cp -R CRT-Scope.vst3 ~/Library/Audio/Plug-Ins/VST3/        # optional, for VST3 hosts
-xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/CRT-Scope.component ~/Library/Audio/Plug-Ins/Components/CRT-Scope-MIDI.component ~/Library/Audio/Plug-Ins/VST3/CRT-Scope.vst3
+xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/CRT-Scope.component ~/Library/Audio/Plug-Ins/VST3/CRT-Scope.vst3
 ```
 
 The plugin isn't signed with a paid Apple developer ID, so without the `xattr`
 line macOS blocks it. Restart GarageBand or Logic. In a track's **Plug-ins**
 slot it's under **Audio Units → plebdui → CRT Scope**. Drag pictures from
-Finder onto the window, or click the tube in IMAGE mode. In Logic, **CRT
-Scope MIDI** is under **MIDI-controlled Effects**: pick a MIDI track as its
-side chain to play the shape from notes.
+Finder onto the window, or click the tube in IMAGE mode.
 
 ## Build (Windows plugin, from Linux)
 
@@ -108,7 +96,6 @@ git clone https://github.com/plebdui/crtscope-vst.git
 cd crtscope-vst
 git clone --recursive https://github.com/DISTRHO/DPF.git dpf
 git -C dpf apply ../patches/dpf-wine-pixel-format.patch   # see below
-git -C dpf apply ../patches/dpf-vst3-no-midi-cc-params.patch
 make -C dpf/dgl WINDOWS=true CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ opengl
 make WINDOWS=true CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++
 # -> bin/CRT-Scope.vst3 and bin/CRT-Scope.clap
@@ -117,9 +104,6 @@ make WINDOWS=true CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++
 The patch fixes the plugin window failing to open under Wine: Pugl asked for a
 pixel format with wglChoosePixelFormatARB, Wine answered "success, 0 formats",
 and Pugl used format 0. It now falls back to the basic format that works.
-The second patch stops DPF adding 2080 hidden "MIDI CC" parameters to the VST3
-when MIDI input is on, so the knobs keep the same parameter numbers and
-existing FL automation still points at the right ones.
 
 The Mac build runs on GitHub Actions (`.github/workflows/macos.yml`): a
 universal AU + VST3 + CLAP, checked with Apple's `auval -strict`, then

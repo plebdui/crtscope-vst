@@ -11,7 +11,6 @@
 #include <ole2.h>
 #include <shlobj.h>
 
-#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -289,38 +288,6 @@ struct ParamChanges {
     ParamChanges() : vtbl(table()) {}
 };
 
-// MIDI notes for the plugin, one block at a time
-struct EventList {
-    struct VT { v3_funknown u; v3_event_list l; };
-    const VT* vtbl;
-    std::atomic<uint32_t> refs{1};
-    std::vector<v3_event> events;
-    static EventList* me(void* s) { return static_cast<EventList*>(s); }
-    static v3_result V3_API qi(void* self, const v3_tuid iid, void** obj)
-    {
-        if (v3_tuid_match(iid, v3_funknown_iid) || v3_tuid_match(iid, v3_event_list_iid)) {
-            *obj = self; return V3_OK;
-        }
-        *obj = nullptr; return V3_NO_INTERFACE;
-    }
-    static uint32_t V3_API count(void* s) { return (uint32_t)me(s)->events.size(); }
-    static v3_result V3_API get(void* s, int32_t idx, v3_event* e)
-    {
-        if (idx < 0 || idx >= (int32_t)me(s)->events.size()) return V3_INVALID_ARG;
-        *e = me(s)->events[idx];
-        return V3_OK;
-    }
-    static v3_result V3_API add(void*, v3_event*) { return V3_NOT_IMPLEMENTED; }
-    static const VT* table()
-    {
-        static const VT vt = {{qi, addRef, noRelease}, {count, get, add}};
-        return &vt;
-    }
-    EventList() : vtbl(table()) {}
-};
-std::atomic<int> gNoteOn{-1}, gNoteOff{-1};  // set by the test, sent with the next block
-std::atomic<float> gPeak{0};                  // loudest output sample since the test reset it
-
 // in-memory stream, for saving the plugin's state
 struct Stream {
     struct VT { v3_funknown u; v3_bstream s; };
@@ -568,19 +535,8 @@ int main(int argc, char** argv)
                 }
                 gPendingEdits.clear();
             }
-            EventList midi;
-            for (int k = 0; k < 2; ++k) {
-                const int note = (k == 0 ? gNoteOn : gNoteOff).exchange(-1);
-                if (note < 0) continue;
-                v3_event e = {};
-                e.type = k == 0 ? V3_EVENT_NOTE_ON : V3_EVENT_NOTE_OFF;
-                if (k == 0) { e.note_on.pitch = (int16_t)note; e.note_on.velocity = 1.0f; e.note_on.note_id = -1; }
-                else { e.note_off.pitch = (int16_t)note; e.note_off.note_id = -1; }
-                midi.events.push_back(e);
-            }
             v3_process_data d = {};
             d.input_params = (v3_param_changes**)&changes;
-            d.input_events = (v3_event_list**)&midi;
             d.process_mode = 0; d.symbolic_sample_size = 0; d.nframes = 512;
             d.num_input_buses = 1; d.num_output_buses = 1; d.inputs = &in; d.outputs = &out;
             if (v3_cpp_obj(proc)->process(proc, &d) != V3_OK) audioOk = false;
@@ -589,9 +545,6 @@ int main(int argc, char** argv)
                     if (expectClean) audioOk = false;  // must pass audio through untouched
                     else changed = true;
                 }
-            float pk = gPeak;
-            for (int i = 0; i < 512; ++i) pk = std::max({pk, std::fabs(outL[i]), std::fabs(outR[i])});
-            gPeak = pk;
             ++blocks;
             const double wait = start + blocks * 512 / 48000.0 - now();
             if (wait > 0) Sleep((DWORD)(wait * 1000));
@@ -634,7 +587,6 @@ int main(int argc, char** argv)
     static Frame frame;
     v3_cpp_obj(view)->set_frame(view, (v3_plugin_frame**)&frame);
     CHECK(v3_cpp_obj(view)->attached(view, win, "HWND") == V3_OK, "attached");
-    const double opened = now();
     std::printf("window open, streaming audio...\n");
     pump(4.0);
     if (const char* shot = std::getenv("MINIHOST_SHOT")) saveWindow(win, (std::string(shot) + "1.bmp").c_str());
@@ -654,7 +606,7 @@ int main(int argc, char** argv)
     const bool modeClicked = gEdits > 0 && gLastParam == 0;
 
     // ---- turn the GLOW knob: press on it, drag up, let go
-    const int knobX = (int)(cr.right * (2.9 + 0.45) / 11.7), knobY = cr.bottom - 84 + 44;  // strip column weights add up to 11.7
+    const int knobX = (int)(cr.right * (2.9 + 0.45) / 10.9), knobY = cr.bottom - 84 + 44;  // strip column weights add up to 10.9
     PostMessageA(child, WM_MOUSEMOVE, 0, MAKELPARAM(knobX, knobY));
     PostMessageA(child, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(knobX, knobY));
     for (int i = 1; i <= 10; ++i) {
@@ -713,7 +665,7 @@ int main(int argc, char** argv)
         dropped = dropped && eqMode && gLastParam == 10 && std::fabs(gLastValue - 0.1) < 1e-6;
 
         // ---- turn SHAPE (last knob) all the way up: the curve itself becomes the sound
-        const int shapeX = (int)(cr.right * (10.0 + 0.45) / 11.7);
+        const int shapeX = (int)(cr.right * (10.0 + 0.45) / 10.9);
         PostMessageA(child, WM_MOUSEMOVE, 0, MAKELPARAM(shapeX, knobY));
         PostMessageA(child, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(shapeX, knobY));
         for (int i = 1; i <= 10; ++i) {
@@ -725,31 +677,6 @@ int main(int argc, char** argv)
         const bool shapeUp = gLastParam == 11 && gLastValue == 1.0;
         std::printf("after dragging SHAPE up: param %d -> %.3f\n", gLastParam.load(), gLastValue.load());
         dropped = dropped && shapeUp;
-
-        // ---- MIDI switch on: the curve plays only while a note is held
-        const LPARAM midiSw = MAKELPARAM((int)(cr.right * (10.9 + 0.4) / 11.7), knobY);
-        PostMessageA(child, WM_LBUTTONDOWN, MK_LBUTTON, midiSw);
-        PostMessageA(child, WM_LBUTTONUP, 0, midiSw);
-        pump(1.0);
-        const bool midiOn = gLastParam == 12 && gLastValue == 1.0;
-        std::printf("(%.1f s after the window opened: MIDI on, no note yet)\n", now() - opened);
-        gPeak = 0;
-        pump(0.5);
-        const float quiet = gPeak;
-        gNoteOn = 57;
-        pump(0.1);
-        gPeak = 0;
-        pump(0.5);
-        const float playing = gPeak;
-        std::printf("(%.1f s after the window opened: note A3 held)\n", now() - opened);
-        gNoteOff = 57;
-        pump(1.0);
-        gPeak = 0;
-        pump(0.5);
-        const float released = gPeak;
-        std::printf("MIDI switch: param %d -> %.3f; output peak no note %.3f, note held %.3f, released %.3f\n",
-                    gLastParam.load(), gLastValue.load(), quiet, playing, released);
-        dropped = dropped && midiOn && quiet < 0.01f && playing > 0.8f && playing <= 0.95f && released < 0.01f;  // full velocity peaks at about -1 dB
 
         // ---- drop a second picture (argv[3], or the same one again): it should replace the first
         const char* second = argc > 3 ? argv[3] : argv[2];

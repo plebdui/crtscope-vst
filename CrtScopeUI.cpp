@@ -134,11 +134,11 @@ static const Button kButtons[] = {
     {kMode, "MODE", kSelect},     {kPhosphor, "PHOSPHOR", kSelect}, {kAfterglow, "GLOW", kKnob},
     {kIntensity, "BEAM", kKnob},  {kGain, "GAIN", kKnob},           {kAutoGain, "AUTO", kSwitch},
     {kGraticule, "GRID", kSwitch}, {kFlaws, "FLAWS", kSelect},      {kWet, "WET", kKnob},
-    {kSweep, "SWEEP", kKnob},     {kShape, "SHAPE", kKnob},         {kMidi, "MIDI", kSwitch},
+    {kSweep, "SWEEP", kKnob},     {kShape, "SHAPE", kKnob},
 };
 static constexpr int kNumButtons = sizeof(kButtons) / sizeof(kButtons[0]);
 // how wide each button is, relative (phosphor names are long)
-static const float kWeights[kNumButtons] = {1.0f, 1.9f, 0.9f, 0.9f, 0.9f, 0.8f, 0.8f, 1.0f, 0.8f, 1.0f, 0.9f, 0.8f};
+static const float kWeights[kNumButtons] = {1.0f, 1.9f, 0.9f, 0.9f, 0.9f, 0.8f, 0.8f, 1.0f, 0.8f, 1.0f, 0.9f};
 
 class CrtScopeUI : public UI {
 public:
@@ -221,18 +221,6 @@ protected:
             }
         }
         registerDrop();
-        if (plugin != nullptr) {
-            const uint32_t notes = plugin->midiNotes.load(std::memory_order_relaxed);
-            if (notes != fMidiNotes) {
-                fMidiNotes = notes;
-                fMidiFlash = 0.15f;  // the lamp under MIDI blinks with each note
-            }
-            fMidiHeld = plugin->midiHeld.load(std::memory_order_relaxed);
-        }
-        const bool midiOn = fValues[kMidi] > 0.5f;
-        if (midiOn && !fMidiWasOn)
-            fMidiNotesAtOn = fMidiNotes;  // "no notes yet" counts from when it was switched on
-        fMidiWasOn = midiOn;
         if (fLoader && fLoader->done.load()) {
             std::unique_ptr<Loader> l = std::move(fLoader);
             l->thread.join();
@@ -245,7 +233,6 @@ protected:
         }
         const auto now = std::chrono::steady_clock::now();
         const float dt = std::chrono::duration<float>(now - fLast).count();
-        fMidiFlash = std::max(0.0f, fMidiFlash - dt);
         fLast = now;
         fTube.shapeN = 0;
         if (mode() == kModeEquation) {
@@ -299,16 +286,11 @@ protected:
             drawEquationLabel((float)w, (float)h, (float)scale);
         if (mode() == kModeImage)
             drawImageHint((float)w, (float)h, (float)scale);
-        if (mode() >= kModeImage && fValues[kMidi] > 0.5f)
-            drawMidiHint((float)w, (float)scale);
         drawStrip((float)h, (float)stripH, (float)scale);
 
         // testing hook: snapshot the whole window (buttons included) 3s, 7s, 13s and 19.5s after opening
-        // (or at the times in CRTSCOPE_DUMP_TIMES)
         if (!fDumpPath.empty() && fDumps < 4) {
-            float when[4] = {3.0f, 7.0f, 13.0f, 19.5f};
-            if (const char* t = std::getenv("CRTSCOPE_DUMP_TIMES"))  // e.g. "20,22,23,25"
-                std::sscanf(t, "%f,%f,%f,%f", &when[0], &when[1], &when[2], &when[3]);
+            static const float when[4] = {3.0f, 7.0f, 13.0f, 19.5f};
             const float age = std::chrono::duration<float>(std::chrono::steady_clock::now() - fOpened).count();
             if (age > when[fDumps]) {
                 static_cast<NanoVG*>(this)->endFrame();
@@ -392,10 +374,6 @@ private:
     NanoImage fImage;
     uint fImageW = 0, fImageH = 0;
     std::string fDumpPath;
-    uint32_t fMidiNotes = 0, fMidiNotesAtOn = 0;
-    int fMidiHeld = -1;
-    float fMidiFlash = 0;
-    bool fMidiWasOn = false;
     int fDumps = 0;
     std::chrono::steady_clock::time_point fOpened = std::chrono::steady_clock::now();
     std::unique_ptr<Loader> fLoader;
@@ -476,33 +454,6 @@ private:
     }
 
     // the curve's name along the bottom of the tube, with arrows
-    // MIDI on: show the note being played, or say that none are arriving
-    void drawMidiHint(float w, float scale)
-    {
-        const crt::Phosphor& ph = crt::phosphors()[std::clamp((int)std::lround(fValues[kPhosphor]), 0, 18)];
-        fontFace(NANOVG_DEJAVU_SANS_TTF);
-        textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
-        char buf[64];
-        if (fMidiNotes == fMidiNotesAtOn) {
-            fontSize(12 * scale);
-            fillColor(Color(230, 150, 90, 220));
-            text(w / 2, 44 * scale, "MIDI ON: NO NOTES ARRIVING", nullptr);
-            fontSize(9.5f * scale);
-            fillColor(Color(120, 128, 124));
-            text(w / 2, 60 * scale, "FL: set this plugin's MIDI input port (gear menu)", nullptr);
-            text(w / 2, 73 * scale, "to the same port as a MIDI Out channel", nullptr);
-            return;
-        }
-        static const char* names[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-        if (fMidiHeld >= 0)
-            std::snprintf(buf, sizeof(buf), "MIDI  %s%d", names[fMidiHeld % 12], fMidiHeld / 12 - 1);
-        else
-            std::snprintf(buf, sizeof(buf), "MIDI  -");
-        fontSize(12 * scale);
-        fillColor(Color((int)ph.glow[0], (int)ph.glow[1], (int)ph.glow[2], 200));
-        text(w / 2, 44 * scale, buf, nullptr);
-    }
-
     void drawEquationLabel(float w, float h, float scale)
     {
         const int eq = std::clamp((int)std::lround(fValues[kEquation]), 0, crt::kNumEquations - 1);
@@ -614,8 +565,7 @@ private:
         case kPhosphor:  v = (float)(((int)v + dir + 19) % 19); break;
         case kFlaws:     v = (float)(((int)v + dir + 3) % 3); break;
         case kAutoGain:
-        case kGraticule:
-        case kMidi:      v = v > 0.5f ? 0.0f : 1.0f; break;
+        case kGraticule: v = v > 0.5f ? 0.0f : 1.0f; break;
         case kSweep:     v = std::clamp(v * (dir > 0 ? 1.5f : 1 / 1.5f), 1.0f, 200.0f); break;
         case kWet:
         case kShape:     v = std::clamp(std::round(v * 20 + dir) / 20, 0.0f, 1.0f); break;
@@ -672,8 +622,7 @@ private:
             break;
         }
         case kAutoGain:
-        case kGraticule:
-        case kMidi:      std::snprintf(out, n, "%s", v > 0.5f ? "ON" : "OFF"); break;
+        case kGraticule: std::snprintf(out, n, "%s", v > 0.5f ? "ON" : "OFF"); break;
         case kSweep:     std::snprintf(out, n, "%.1f ms", v); break;
         case kWet:
         case kShape:     std::snprintf(out, n, "%d%%", (int)std::lround(v * 100)); break;
@@ -700,7 +649,7 @@ private:
             const uint32_t p = kButtons[b].param;
             const bool dim = (p == kSweep && std::lround(fValues[kMode]) != crt::kWave)
                           || (p == kWet && std::lround(fValues[kFlaws]) == 0 && !picture)
-                          || ((p == kShape || p == kMidi) && !picture);
+                          || (p == kShape && !picture);
             const Color col = dim ? off : accent;
             const float cx = x + w / 2, cy = y0 + 44 * scale;
             beginPath();
@@ -721,7 +670,7 @@ private:
                 fillColor(dim ? off : label);
                 text(cx, y0 + 70 * scale, buf, nullptr);
             } else if (kButtons[b].kind == kSwitch) {
-                drawSwitch(cx, cy, fValues[p] > 0.5f, accent, scale, p == kMidi && fMidiFlash > 0);
+                drawSwitch(cx, cy, fValues[p] > 0.5f, accent, scale);
             } else {
                 // a little lit display window
                 const float dw = w - 14 * scale, dh = 22 * scale;
@@ -777,7 +726,7 @@ private:
     }
 
     // a slide switch: the lever sits right and lights up when on
-    void drawSwitch(float cx, float cy, bool on, const Color& col, float scale, bool flash = false)
+    void drawSwitch(float cx, float cy, bool on, const Color& col, float scale)
     {
         const float w = 34 * scale, h = 16 * scale;
         beginPath();
@@ -794,8 +743,8 @@ private:
         fill();
         // little indicator lamp under the switch
         beginPath();
-        circle(cx, cy + 16 * scale, (flash ? 3.5f : 2.5f) * scale);
-        fillColor(flash ? Color(255, 255, 240) : on ? col : Color(40, 42, 44));
+        circle(cx, cy + 16 * scale, 2.5f * scale);
+        fillColor(on ? col : Color(40, 42, 44));
         fill();
     }
 

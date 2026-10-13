@@ -2,8 +2,7 @@
 // works (left = x, right = y, one trip around the outline per cycle). The
 // pitch follows the note in the incoming audio and the level follows its
 // loudness, so the shape plays along with the track. The SHAPE knob blends it
-// with the input. With MIDI on, the notes played into the plugin set the
-// pitch and level instead, like a synth. Plain C++ so it can be tested on its own.
+// with the input. Plain C++ so it can be tested on its own.
 #pragma once
 
 #include "PictureFx.hpp"
@@ -41,44 +40,6 @@ public:
 
     float pitch() const { return freq; }  // Hz, for tests
 
-    // MIDI: when on, the latest held note sets the pitch and its velocity the
-    // level; with no note held the shape is silent
-    void setMidi(bool on)
-    {
-        if (on != midi) {
-            midi = on;
-            held = 0;
-        }
-    }
-    void noteOn(int note, int velocity)
-    {
-        if (velocity <= 0) {
-            noteOff(note);
-            return;
-        }
-        noteOff(note);  // a repeated note moves to the top
-        if (held == kMaxHeld) {
-            std::copy(notes + 1, notes + kMaxHeld, notes);
-            std::copy(vels + 1, vels + kMaxHeld, vels);
-            --held;
-        }
-        notes[held] = note;
-        vels[held] = kMaxLevel * velocity / 127.0f;
-        ++held;
-    }
-    void noteOff(int note)
-    {
-        for (int i = 0; i < held; ++i)
-            if (notes[i] == note) {
-                std::copy(notes + i + 1, notes + held, notes + i);
-                std::copy(vels + i + 1, vels + held, vels + i);
-                --held;
-                return;
-            }
-    }
-    void allNotesOff() { held = 0; }
-    int heldNote() const { return held ? notes[held - 1] : -1; }
-
 private:
     template <class Source>
     void run(float* l, float* r, uint32_t n, float mix, float sampleRate, Source source)
@@ -91,25 +52,11 @@ private:
         const float glide = 1.0f - std::exp(-1.0f / (0.015f * sampleRate));
         const float dc = std::exp(-6.2831853f * 10.0f / sampleRate);  // what's left of any offset stays out of the speakers
         const float dt = 1.0f / sampleRate;
-        const float gateUp = 1.0f - std::exp(-1.0f / (0.003f * sampleRate));
-        const float gateDown = 1.0f - std::exp(-1.0f / (0.12f * sampleRate));
         for (uint32_t i = 0; i < n; ++i) {
             track(l[i], r[i], sampleRate);
             // as loud on average as the input, peaks kept just under full scale
-            float level = std::min(std::sqrt(meanSq) / shapeRms, kMaxLevel);
-            if (midi) {
-                const float want = held ? vels[held - 1] : 0.0f;
-                if (held) {
-                    const float f = 440.0f * std::exp2((notes[held - 1] - 69) / 12.0f);
-                    if (gate < 1e-3f) freq = f;  // a fresh note starts on pitch, legato glides
-                    noteTarget = f;
-                }
-                gate += (want - gate) * (want > gate ? gateUp : gateDown);
-                level = gate;
-                freq *= std::pow(noteTarget / freq, glide);
-            } else {
-                freq *= std::pow(target / freq, glide);
-            }
+            const float level = std::min(std::sqrt(meanSq) / shapeRms, kMaxLevel);
+            freq *= std::pow(target / freq, glide);
             phase += freq * dt;
             if (phase >= 1) phase -= std::floor(phase);
             const auto xy = source(t);
@@ -223,10 +170,6 @@ private:
     float acc = 0, rate = 0, attack = 1, release = 1, meanSq = 0;
     float target = 110, freq = 110, phase = 0;
     float dcInX = 0, dcOutX = 0, dcInY = 0, dcOutY = 0;
-    static constexpr int kMaxHeld = 16;
-    int notes[kMaxHeld] = {}, held = 0;
-    float vels[kMaxHeld] = {}, gate = 0, noteTarget = 110;
-    bool midi = false;
     const float* lastX = nullptr;
     float midX = 0, midY = 0, fitScale = 1.25f, shapeRms = 0.5f;
     static constexpr float kMaxLevel = 0.9f;  // about -1 dB
