@@ -8,7 +8,7 @@
 START_NAMESPACE_DISTRHO
 
 enum Params {
-    kMode = 0,      // XY / goniometer / waveform
+    kMode = 0,      // XY / goniometer / waveform / image
     kPhosphor,      // 0-3 real phosphors, 4-18 Apple II colours
     kAfterglow,     // afterglow length multiplier
     kIntensity,     // beam brightness
@@ -53,12 +53,14 @@ protected:
     const char* getMaker() const override { return "plebdui"; }
     const char* getHomePage() const override { return "https://github.com/plebdui/crtscope"; }
     const char* getLicense() const override { return "ISC"; }
-    uint32_t getVersion() const override { return d_version(1, 0, 0); }
+    uint32_t getVersion() const override { return d_version(1, 1, 0); }
 
     void initAudioPort(bool input, uint32_t index, AudioPort& port) override;
     void initParameter(uint32_t index, Parameter& parameter) override;
     float getParameterValue(uint32_t index) const override;
     void setParameterValue(uint32_t index, float value) override;
+    void initState(uint32_t index, State& state) override;
+    void setState(const char*, const char*) override {}  // only the window uses the picture path
     void run(const float** inputs, float** outputs, uint32_t frames) override;
 
 private:

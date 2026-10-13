@@ -6,7 +6,7 @@ START_NAMESPACE_DISTRHO
 static const float kDefaults[kParamCount] = {0, 0, 1, 1, 1, 1, 1, 1, 20};
 
 CrtScopePlugin::CrtScopePlugin()
-    : Plugin(kParamCount, 0, 0)
+    : Plugin(kParamCount, 0, 1)
 {
     std::memcpy(fParams, kDefaults, sizeof(fParams));
 }
@@ -25,9 +25,9 @@ void CrtScopePlugin::initParameter(uint32_t index, Parameter& p)
     case kMode: {
         p.hints |= kParameterIsInteger;
         p.name = "Mode"; p.symbol = "mode";
-        p.ranges.min = 0; p.ranges.max = 2;
-        static ParameterEnumerationValue v[3] = {{0, "XY"}, {1, "Goniometer"}, {2, "Waveform"}};
-        p.enumValues.count = 3; p.enumValues.restrictedMode = true; p.enumValues.values = v;
+        p.ranges.min = 0; p.ranges.max = 3;
+        static ParameterEnumerationValue v[4] = {{0, "XY"}, {1, "Goniometer"}, {2, "Waveform"}, {3, "Image"}};
+        p.enumValues.count = 4; p.enumValues.restrictedMode = true; p.enumValues.values = v;
         p.enumValues.deleteLater = false;
         break;
     }
@@ -87,6 +87,14 @@ void CrtScopePlugin::setParameterValue(uint32_t index, float value)
 {
     if (index < kParamCount)
         fParams[index] = value;
+}
+
+// the picture shown in image mode, saved with the project
+void CrtScopePlugin::initState(uint32_t, State& state)
+{
+    state.key = "image";
+    state.label = "Image file";
+    state.defaultValue = "";
 }
 
 void CrtScopePlugin::run(const float** inputs, float** outputs, uint32_t frames)

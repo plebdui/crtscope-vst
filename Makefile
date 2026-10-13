@@ -12,6 +12,9 @@ FILES_UI  = CrtScopeUI.cpp
 include $(DPF_PATH)/Makefile.plugins.mk
 
 BUILD_CXX_FLAGS += -std=gnu++17
+ifeq ($(WINDOWS),true)
+LINK_FLAGS += -lole32 -lshell32 -luuid   # drag and drop
+endif
 
 TARGETS += vst3 clap
 all: $(TARGETS)

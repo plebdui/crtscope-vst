@@ -1,18 +1,122 @@
 // The plugin window: the tube on top, a strip of buttons along the bottom.
 // Left-click / scroll up = next or more, right-click / scroll down = back or less.
+// Drop a GIF or picture on the tube (or click the tube in IMAGE mode) to trace it.
 #include "DistrhoUI.hpp"
 #include "CrtScopeShared.hpp"
 #include "CrtTube.hpp"
+#include "ImageTrace.hpp"
 #include "OpenGL.hpp"
+#include <memory>
+#include <thread>
 #include <vector>
+#ifdef _WIN32
+#include <ole2.h>
+#include <shellapi.h>
+#endif
 
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <functional>
 #include <string>
 
 START_NAMESPACE_DISTRHO
+
+// Traces a file on its own thread (a long GIF takes a few seconds)
+struct Loader {
+    std::string path;
+    crt::Picture pic;
+    std::string error;
+    std::atomic<bool> cancel{false}, done{false};
+    std::atomic<int> percent{0};
+    std::thread thread;
+
+    explicit Loader(const std::string& p) : path(p)
+    {
+        thread = std::thread([this] {
+            error = crt::loadPicture(path, pic, cancel, percent);
+            done.store(true);
+        });
+    }
+    ~Loader()
+    {
+        cancel.store(true);
+        if (thread.joinable())
+            thread.join();
+    }
+};
+
+#ifdef _WIN32
+// Files dragged from Explorer (or FL's browser) onto the window
+class DropTarget : public IDropTarget {
+public:
+    explicit DropTarget(std::function<void(const std::string&)> cb) : fCb(std::move(cb)) {}
+    virtual ~DropTarget() = default;
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) override
+    {
+        if (riid == IID_IUnknown || riid == IID_IDropTarget) {
+            *out = static_cast<IDropTarget*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *out = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++fRefs; }
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        const ULONG r = --fRefs;
+        if (r == 0)
+            delete this;
+        return r;
+    }
+    HRESULT STDMETHODCALLTYPE DragEnter(IDataObject* data, DWORD, POINTL, DWORD* effect) override
+    {
+        FORMATETC fmt = {CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+        fOk = data && data->QueryGetData(&fmt) == S_OK;
+        *effect = fOk ? DROPEFFECT_COPY : DROPEFFECT_NONE;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DragOver(DWORD, POINTL, DWORD* effect) override
+    {
+        *effect = fOk ? DROPEFFECT_COPY : DROPEFFECT_NONE;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DragLeave() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE Drop(IDataObject* data, DWORD, POINTL, DWORD* effect) override
+    {
+        *effect = DROPEFFECT_NONE;
+        FORMATETC fmt = {CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+        STGMEDIUM stg = {};
+        if (!data || data->GetData(&fmt, &stg) != S_OK)
+            return S_OK;
+        std::string path;
+        if (HDROP drop = (HDROP)GlobalLock(stg.hGlobal)) {
+            wchar_t w[MAX_PATH * 4];
+            if (DragQueryFileW(drop, 0, w, MAX_PATH * 4) > 0) {
+                char u[MAX_PATH * 12];
+                if (WideCharToMultiByte(CP_UTF8, 0, w, -1, u, sizeof(u), nullptr, nullptr) > 0)
+                    path = u;
+            }
+            GlobalUnlock(stg.hGlobal);
+        }
+        ReleaseStgMedium(&stg);
+        if (!path.empty()) {
+            *effect = DROPEFFECT_COPY;
+            fCb(path);
+        }
+        return S_OK;
+    }
+
+private:
+    std::function<void(const std::string&)> fCb;
+    ULONG fRefs = 1;
+    bool fOk = false;
+};
+#endif
 
 static constexpr uint kTubeSize = 640;
 static constexpr uint kStrip = 46;
@@ -47,6 +151,18 @@ public:
             fDumpPath = p;
     }
 
+    ~CrtScopeUI() override
+    {
+#ifdef _WIN32
+        if (fDropHwnd)
+            RevokeDragDrop(fDropHwnd);
+        if (fDrop)
+            fDrop->Release();
+        if (fOleInit)
+            OleUninitialize();
+#endif
+    }
+
 protected:
     // ---- host -> window
     void parameterChanged(uint32_t index, float value) override
@@ -56,6 +172,18 @@ protected:
         fValues[index] = value;
         apply();
         repaint();
+    }
+
+    void stateChanged(const char* key, const char* value) override
+    {
+        if (std::strcmp(key, "image") == 0 && value && *value)
+            loadImage(value);
+    }
+
+    void uiFileBrowserSelected(const char* filename) override
+    {
+        if (filename)
+            pickFile(filename);
     }
 
     // ---- called by the host many times a second: pull in new audio, move the beam
@@ -82,9 +210,31 @@ protected:
                 avail -= n;
             }
         }
+        registerDrop();
+        if (fLoader && fLoader->done.load()) {
+            std::unique_ptr<Loader> l = std::move(fLoader);
+            l->thread.join();
+            if (l->error.empty()) {
+                fPic.reset(new crt::Picture(std::move(l->pic)));
+                fPicTime = 0;
+            } else {
+                fPicError = l->error;
+            }
+        }
         const auto now = std::chrono::steady_clock::now();
         const float dt = std::chrono::duration<float>(now - fLast).count();
         fLast = now;
+        fTube.shapeN = 0;
+        if (fTube.mode == crt::kImage && fPic) {
+            fPicTime += std::clamp(dt, 0.0f, 0.25f);
+            if (const crt::Frame* fr = fPic->at(fPicTime)) {
+                fTube.shapeX = fr->x.data();
+                fTube.shapeY = fr->y.data();
+                fTube.shapeBlank = fr->blank.data();
+                fTube.shapeN = (int)fr->x.size();
+            }
+            fTube.shapeMoving = fPic->animated();
+        }
         fTube.step(dt);
         repaint();
     }
@@ -109,14 +259,17 @@ protected:
         fillPaint(imagePattern(0, 0, w, h, 0, fImage, 1.0f));
         fill();
 
+        if (fTube.mode == crt::kImage)
+            drawImageHint((float)w, (float)h, (float)scale);
         drawStrip((float)h, (float)stripH, (float)scale);
 
-        // testing hook: snapshot the whole window (buttons included) 3s and 7s after opening
-        if (!fDumpPath.empty() && fDumps < 2) {
+        // testing hook: snapshot the whole window (buttons included) 3s, 7s and 13s after opening
+        if (!fDumpPath.empty() && fDumps < 3) {
+            static const float when[3] = {3.0f, 7.0f, 13.0f};
             const float age = std::chrono::duration<float>(std::chrono::steady_clock::now() - fOpened).count();
-            if (age > (fDumps == 0 ? 3.0f : 7.0f)) {
+            if (age > when[fDumps]) {
                 static_cast<NanoVG*>(this)->endFrame();
-                dumpFrontBuffer(fDumpPath + (fDumps == 0 ? ".full1.ppm" : ".full2.ppm"));
+                dumpFrontBuffer(fDumpPath + ".full" + std::to_string(fDumps + 1) + ".ppm");
                 static_cast<NanoVG*>(this)->beginFrame(getWidth(), getHeight());
                 ++fDumps;
             }
@@ -128,8 +281,14 @@ protected:
         if (!ev.press)
             return false;
         const int b = buttonAt(ev.pos.getX(), ev.pos.getY());
-        if (b < 0)
-            return false;
+        if (b < 0) {
+            if (fTube.mode != crt::kImage || ev.button != 1)
+                return false;
+            FileBrowserOptions opts;  // clicking the tube in image mode picks a file
+            opts.title = "Pick a GIF or picture for the CRT";
+            openFileBrowser(opts);
+            return true;
+        }
         nudge(b, ev.button == 3 ? -1 : 1);  // right button goes back
         return true;
     }
@@ -153,6 +312,86 @@ private:
     std::string fDumpPath;
     int fDumps = 0;
     std::chrono::steady_clock::time_point fOpened = std::chrono::steady_clock::now();
+    std::unique_ptr<Loader> fLoader;
+    std::unique_ptr<crt::Picture> fPic;
+    std::string fPicPath, fPicError;
+    double fPicTime = 0;
+#ifdef _WIN32
+    DropTarget* fDrop = nullptr;
+    HWND fDropHwnd = nullptr;
+    bool fOleInit = false, fDropTried = false;
+#endif
+
+    void registerDrop()
+    {
+#ifdef _WIN32
+        if (fDropTried)
+            return;
+        fDropTried = true;
+        HWND hwnd = (HWND)getWindow().getNativeWindowHandle();
+        if (!hwnd)
+            return;
+        fOleInit = SUCCEEDED(OleInitialize(nullptr));  // the host has normally done this already
+        fDrop = new DropTarget([this](const std::string& p) { pickFile(p); });
+        if (RegisterDragDrop(hwnd, fDrop) == S_OK)
+            fDropHwnd = hwnd;
+        else
+            std::fprintf(stderr, "CRT Scope: drag and drop unavailable\n");
+#endif
+    }
+
+    // a file the user chose: show it, switch to image mode, save it with the project
+    void pickFile(const std::string& path)
+    {
+        fPicPath.clear();  // reload even if it's the same file (it may have changed)
+        loadImage(path);
+        setState("image", path.c_str());
+        if (std::lround(fValues[kMode]) != crt::kImage) {
+            fValues[kMode] = crt::kImage;
+            apply();
+            editParameter(kMode, true);
+            setParameterValue(kMode, crt::kImage);
+            editParameter(kMode, false);
+        }
+    }
+
+    void loadImage(const std::string& path)
+    {
+        if (path == fPicPath)
+            return;
+        fPicPath = path;
+        fPicError.clear();
+        fLoader.reset(new Loader(path));  // cancels and waits for any earlier one
+        repaint();
+    }
+
+    void drawImageHint(float w, float h, float scale)
+    {
+        char buf[160];
+        const char* line2 = nullptr;
+        if (fLoader) {
+            std::snprintf(buf, sizeof(buf), "TRACING  %d%%", fLoader->percent.load());
+        } else if (!fPicError.empty()) {
+            std::snprintf(buf, sizeof(buf), "%s", fPicError.c_str());
+            line2 = "drop another GIF or picture here";
+        } else if (!fPic) {
+            std::snprintf(buf, sizeof(buf), "DROP A GIF OR PICTURE HERE");
+            line2 = "or click to choose one";
+        } else {
+            return;
+        }
+        const crt::Phosphor& ph = crt::phosphors()[std::clamp((int)std::lround(fValues[kPhosphor]), 0, 18)];
+        fontFace(NANOVG_DEJAVU_SANS_TTF);
+        textAlign(ALIGN_CENTER | ALIGN_MIDDLE);
+        fontSize(16 * scale);
+        fillColor(Color((int)ph.glow[0], (int)ph.glow[1], (int)ph.glow[2], 220));
+        text(w / 2, h / 2 - (line2 ? 10 * scale : 0), buf, nullptr);
+        if (line2) {
+            fontSize(11.5f * scale);
+            fillColor(Color(120, 128, 124));
+            text(w / 2, h / 2 + 14 * scale, line2, nullptr);
+        }
+    }
 
     // testing hook: the frame just drawn, buttons included
     void dumpFrontBuffer(const std::string& path)
@@ -188,7 +427,7 @@ private:
         const uint32_t p = kButtons[b].param;
         float v = fValues[p];
         switch (p) {
-        case kMode:      v = (float)(((int)v + dir + 3) % 3); break;
+        case kMode:      v = (float)(((int)v + dir + 4) % 4); break;
         case kPhosphor:  v = (float)(((int)v + dir + 19) % 19); break;
         case kFlaws:     v = (float)(((int)v + dir + 3) % 3); break;
         case kAutoGain:
@@ -234,8 +473,8 @@ private:
         const float v = fValues[p];
         switch (p) {
         case kMode: {
-            static const char* m[] = {"XY", "GONIO", "WAVE"};
-            std::snprintf(out, n, "%s", m[std::clamp((int)std::lround(v), 0, 2)]);
+            static const char* m[] = {"XY", "GONIO", "WAVE", "IMAGE"};
+            std::snprintf(out, n, "%s", m[std::clamp((int)std::lround(v), 0, 3)]);
             break;
         }
         case kPhosphor:

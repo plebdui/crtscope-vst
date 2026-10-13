@@ -54,7 +54,7 @@ inline const std::vector<Phosphor>& phosphors()
     return list;
 }
 
-enum Mode { kXY = 0, kGonio = 1, kWave = 2 };
+enum Mode { kXY = 0, kGonio = 1, kWave = 2, kImage = 3 };
 
 class Tube {
 public:
@@ -68,6 +68,14 @@ public:
     bool graticule = true;
     int flaws = 1;            // 0 off, 1 subtle (hum, soft rim, flicker), 2 worn
     float sweepMs = 20.0f;    // waveform mode: time across the screen
+
+    // picture mode: the outline to draw this step (-1..1, y up; blank = beam
+    // off on the way to that point). Owned by the caller.
+    const float* shapeX = nullptr;
+    const float* shapeY = nullptr;
+    const uint8_t* shapeBlank = nullptr;
+    int shapeN = 0;
+    bool shapeMoving = false;  // animated: short afterglow so frames don't smear
 
     void resize(int w, int h)
     {
@@ -125,7 +133,9 @@ public:
         dt = std::clamp(dt, 1e-4f, 0.25f);
         const Phosphor& ph = phosphors()[std::clamp(phosphor, 0, (int)phosphors().size() - 1)];
         const float tauF = ph.tauF;
-        const float tauG = ph.tauG * afterglow;
+        float tauG = ph.tauG * afterglow;
+        if (mode == kImage && shapeMoving)
+            tauG = std::min(tauG, 0.12f);
         const float kf = std::exp(-dt / tauF), kg = std::exp(-dt / tauG);
         for (size_t i = 0; i < flash.size(); ++i) {
             flash[i] *= kf;
@@ -136,6 +146,33 @@ public:
         L.swap(pendL);
         Rt.swap(pendR);
         const float power = 900.0f * intensity;
+
+        if (mode == kImage) {
+            if (shapeN < 2)
+                return;
+            // the music pushes the picture about: it swells with the level and
+            // the stereo signal nudges the beam
+            float lvl = 0;
+            for (size_t i = 0; i < L.size(); ++i)
+                lvl = std::max(lvl, std::max(std::fabs(L[i]), std::fabs(Rt[i])));
+            peak = std::max({lvl, peak * std::exp(-dt / 1.5f), 0.01f});
+            const float rel = lvl / peak;
+            const float size = R * gain * (1.0f + 0.05f * rel);
+            std::vector<float> px(shapeN), py(shapeN);
+            const size_t m = L.size();
+            for (int i = 0; i < shapeN; ++i) {
+                float wx = 0, wy = 0;
+                if (m) {
+                    const size_t j = (size_t)i * m / shapeN;
+                    wx = L[j] / peak * 0.015f;
+                    wy = Rt[j] / peak * 0.015f;
+                }
+                px[i] = cx + (shapeX[i] + wx) * size;
+                py[i] = cy - (shapeY[i] + wy) * size;
+            }
+            trace(px, py, shapeN / dt, power * 3.0f, tauF, tauG, shapeBlank);
+            return;
+        }
 
         if (mode == kWave) {
             for (size_t i = 0; i < L.size(); ++i)
@@ -158,7 +195,7 @@ public:
             }
             // a real scope sweeps over and over: about dt / sweep sweeps per frame
             const float sweeps = std::min(dt / (sweepMs / 1000.0f), 8.0f);
-            trace(px, py, sr, power * sweeps, tauF, tauG, false);
+            trace(px, py, sr, power * sweeps, tauF, tauG);
             return;
         }
 
@@ -202,7 +239,7 @@ public:
         }
         lastX = x.back();
         lastY = y.back();
-        trace(px, py, sr * up, power, tauF, tauG, true);
+        trace(px, py, sr * up, power, tauF, tauG);
     }
 
     // The picture as RGBA bytes (W x H).
@@ -424,7 +461,7 @@ private:
     // Sweep the beam through the points. Every point gets the same beam time,
     // spread along its path, so slow parts of the trace glow brightest.
     void trace(std::vector<float>& px, std::vector<float>& py, float rate, float power,
-               float tauF, float tauG, bool continuous)
+               float tauF, float tauG, const uint8_t* blank = nullptr)
     {
         const size_t n = px.size();
         if (n < 2)
@@ -441,8 +478,9 @@ private:
         }
         const float scale = power * (R / 100.0f);
         const float addF = scale * 0.7f / tauF, addG = scale / tauG;
-        (void)continuous;
         for (size_t i = 1; i < n; ++i) {
+            if (blank && blank[i])
+                continue;  // beam off while it jumps to the next stroke
             const float x0 = px[i - 1], y0 = py[i - 1];
             const float dx = px[i] - x0, dy = py[i] - y0;
             const int steps = std::clamp((int)std::ceil(std::hypot(dx, dy)), 1, 64);

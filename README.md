@@ -13,18 +13,27 @@ The audio passes through untouched.
   <img src="screenshots/window-gonio.png" width="45%" alt="The plugin window in goniometer mode">
 </p>
 
-- **Modes:** XY (Lissajous), goniometer, and a triggered waveform
+- **Modes:** XY (Lissajous), goniometer, a triggered waveform, and IMAGE
+- **Pictures:** drag a GIF, PNG, JPG or BMP onto the window (or click the tube
+  in IMAGE mode to pick one) and the beam traces its outlines; GIFs animate and
+  the music shakes the picture. The file is saved with your FL project.
 - **Phosphors:** P7 radar, P1 green, P12 orange, P31, plus 15 Apple II colours
 - **Controls** along the bottom: left-click or scroll up = next / more,
   right-click or scroll down = back / less. All of them are automatable.
 
-Image/video tracing and the clock from the terminal version aren't in the plugin.
+<p align="center">
+  <img src="screenshots/window-image.png" width="45%" alt="A dropped GIF traced on the tube in IMAGE mode">
+</p>
+
+Video files and the clock from the terminal version aren't in the plugin.
 
 ![P7 radar, P1 green, P12 orange, P31, and Apple II blue, purple, red and white](screenshots/phosphors.png)
 
 ## Install in FL Studio
 
-Copy `CRT-Scope.vst3` into `C:\Program Files\Common Files\VST3` (on Linux
+Download `CRT-Scope-vst3-windows.zip` from
+[Releases](https://github.com/plebdui/crtscope-vst/releases/latest) and unzip it.
+Copy the `CRT-Scope.vst3` folder into `C:\Program Files\Common Files\VST3` (on Linux
 with Wine: `~/.wine/drive_c/Program Files/Common Files/VST3`), then in FL:
 **Options → Manage plugins → Find more plugins**, and add **CRT Scope** to a
 mixer track.
@@ -51,7 +60,10 @@ and Pugl used format 0. It now falls back to the basic format that works.
 
 - `tests/render_test.cpp`: draws the tube with test tones to PPM images (native, no host)
 - `tests/minihost.cpp`: a tiny VST3 host (mingw, run under Wine) that opens the
-  window, streams audio, clicks MODE and checks the result. Set `CRTSCOPE_DUMP`
+  window, streams audio, clicks MODE and checks the result. Given a picture
+  path, it also drags it onto the window through OLE (like Explorer), checks
+  IMAGE mode turned on and the path is in the saved state; `MINIHOST_SAVE` /
+  `MINIHOST_LOAD` save and reopen that state. Set `CRTSCOPE_DUMP`
   to a file path and the window saves snapshots of itself.
 - pluginval 1.0.4, strictness 10, under Wine: all tests pass except its editor
   test, which times out under Wine for DPF's own example plugins too (the

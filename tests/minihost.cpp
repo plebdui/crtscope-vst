@@ -2,10 +2,14 @@
 // plugin, open its window inside a host window, stream stereo audio through it
 // on a separate thread, click a button in the window, then shut everything down.
 // Windows only; built with mingw and run under Wine:
-//   x86_64-w64-mingw32-g++ -std=c++17 -O1 -I../dpf/distrho/src minihost.cpp -o minihost.exe -static -lgdi32
-//   wine minihost.exe 'C:\path\CRT-Scope.vst3\Contents\x86_64-win\CRT-Scope.vst3'
+//   x86_64-w64-mingw32-g++ -std=c++17 -O1 -I../dpf/distrho/src minihost.cpp -o minihost.exe -static -lgdi32 -lole32 -lshell32 -luuid
+//   wine minihost.exe 'C:\path\CRT-Scope.vst3\Contents\x86_64-win\CRT-Scope.vst3' ['C:\path\picture.gif']
+// With a picture path it also drags that file onto the window (the way Explorer
+// does) and checks the plugin switched to IMAGE mode and saved the path.
 #define _USE_MATH_DEFINES
 #include <windows.h>
+#include <ole2.h>
+#include <shlobj.h>
 
 #include <atomic>
 #include <chrono>
@@ -24,6 +28,7 @@
 
 #include "travesty/audio_processor.h"
 #include "travesty/base.h"
+#include "travesty/bstream.h"
 #include "travesty/component.h"
 #include "travesty/edit_controller.h"
 #include "travesty/factory.h"
@@ -283,6 +288,115 @@ struct ParamChanges {
     ParamChanges() : vtbl(table()) {}
 };
 
+// in-memory stream, for saving the plugin's state
+struct Stream {
+    struct VT { v3_funknown u; v3_bstream s; };
+    const VT* vtbl;
+    std::atomic<uint32_t> refs{1};
+    std::vector<uint8_t> data;
+    int64_t pos = 0;
+    static Stream* me(void* s) { return static_cast<Stream*>(s); }
+    static v3_result V3_API qi(void* self, const v3_tuid iid, void** obj)
+    {
+        if (v3_tuid_match(iid, v3_funknown_iid) || v3_tuid_match(iid, v3_bstream_iid)) {
+            *obj = self; addRef(self); return V3_OK;
+        }
+        *obj = nullptr; return V3_NO_INTERFACE;
+    }
+    static v3_result V3_API read(void* s, void* buf, int32_t n, int32_t* got)
+    {
+        const int32_t k = (int32_t)std::max<int64_t>(0, std::min<int64_t>(n, (int64_t)me(s)->data.size() - me(s)->pos));
+        std::memcpy(buf, me(s)->data.data() + me(s)->pos, k); me(s)->pos += k;
+        if (got) *got = k;
+        return V3_OK;
+    }
+    static v3_result V3_API write(void* s, void* buf, int32_t n, int32_t* put)
+    {
+        auto& d = me(s)->data;
+        if ((int64_t)d.size() < me(s)->pos + n) d.resize(me(s)->pos + n);
+        std::memcpy(d.data() + me(s)->pos, buf, n); me(s)->pos += n;
+        if (put) *put = n;
+        return V3_OK;
+    }
+    static v3_result V3_API seek(void* s, int64_t p, int32_t mode, int64_t* res)
+    {
+        me(s)->pos = mode == V3_SEEK_SET ? p : mode == V3_SEEK_CUR ? me(s)->pos + p : (int64_t)me(s)->data.size() + p;
+        if (res) *res = me(s)->pos;
+        return V3_OK;
+    }
+    static v3_result V3_API tell(void* s, int64_t* p) { *p = me(s)->pos; return V3_OK; }
+    static const VT* table()
+    {
+        static const VT vt = {{qi, addRef, noRelease}, {read, write, seek, tell}};
+        return &vt;
+    }
+    Stream() : vtbl(table()) {}
+};
+
+// ---- a file being dragged, as Explorer offers it (CF_HDROP)
+struct DragFile : IDataObject {
+    std::wstring path;
+    LONG refs = 1;
+    explicit DragFile(const std::wstring& p) : path(p) {}
+    virtual ~DragFile() = default;
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) override
+    {
+        if (riid == IID_IUnknown || riid == IID_IDataObject) { *out = this; AddRef(); return S_OK; }
+        *out = nullptr; return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++refs; }
+    ULONG STDMETHODCALLTYPE Release() override { return --refs; }  // lives on the stack
+    HRESULT STDMETHODCALLTYPE GetData(FORMATETC* f, STGMEDIUM* m) override
+    {
+        if (QueryGetData(f) != S_OK) return DV_E_FORMATETC;
+        const size_t bytes = sizeof(DROPFILES) + (path.size() + 2) * sizeof(wchar_t);
+        HGLOBAL h = GlobalAlloc(GHND, bytes);
+        DROPFILES* df = (DROPFILES*)GlobalLock(h);
+        df->pFiles = sizeof(DROPFILES);
+        df->fWide = TRUE;
+        std::memcpy((char*)df + sizeof(DROPFILES), path.c_str(), (path.size() + 1) * sizeof(wchar_t));
+        GlobalUnlock(h);
+        m->tymed = TYMED_HGLOBAL; m->hGlobal = h; m->pUnkForRelease = nullptr;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetDataHere(FORMATETC*, STGMEDIUM*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE QueryGetData(FORMATETC* f) override
+    {
+        return (f->cfFormat == CF_HDROP && (f->tymed & TYMED_HGLOBAL)) ? S_OK : DV_E_FORMATETC;
+    }
+    HRESULT STDMETHODCALLTYPE GetCanonicalFormatEtc(FORMATETC*, FORMATETC* o) override { o->ptd = nullptr; return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SetData(FORMATETC*, STGMEDIUM*, BOOL) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE EnumFormatEtc(DWORD dir, IEnumFORMATETC** e) override
+    {
+        if (dir != DATADIR_GET) return E_NOTIMPL;
+        FORMATETC f = {CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+        return SHCreateStdEnumFmtEtc(1, &f, e);
+    }
+    HRESULT STDMETHODCALLTYPE DAdvise(FORMATETC*, DWORD, IAdviseSink*, DWORD*) override { return OLE_E_ADVISENOTSUPPORTED; }
+    HRESULT STDMETHODCALLTYPE DUnadvise(DWORD) override { return OLE_E_ADVISENOTSUPPORTED; }
+    HRESULT STDMETHODCALLTYPE EnumDAdvise(IEnumSTATDATA**) override { return OLE_E_ADVISENOTSUPPORTED; }
+};
+
+// ---- the "mouse": lets go of the file after a few checks
+struct DragHand : IDropSource {
+    int polls = 0;
+    virtual ~DragHand() = default;
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) override
+    {
+        if (riid == IID_IUnknown || riid == IID_IDropSource) { *out = this; return S_OK; }
+        *out = nullptr; return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return 2; }
+    ULONG STDMETHODCALLTYPE Release() override { return 1; }
+    HRESULT STDMETHODCALLTYPE QueryContinueDrag(BOOL esc, DWORD) override
+    {
+        if (esc) return DRAGDROP_S_CANCEL;
+        Sleep(50);
+        return ++polls >= 6 ? DRAGDROP_S_DROP : S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GiveFeedback(DWORD) override { return DRAGDROP_S_USEDEFAULTCURSORS; }
+};
+
 // ---- the test ---------------------------------------------------------------------------
 
 // (GetTickCount runs slow under some Wine builds, so time everything with steady_clock)
@@ -431,6 +545,21 @@ int main(int argc, char** argv)
         }
     });
 
+    // ---- reopening a saved project: load the state before the window opens
+    if (const char* load = std::getenv("MINIHOST_LOAD")) {
+        Stream st;
+        if (FILE* f = std::fopen(load, "rb")) {
+            int c;
+            while ((c = std::fgetc(f)) != EOF) st.data.push_back((uint8_t)c);
+            std::fclose(f);
+        }
+        CHECK(!st.data.empty(), "saved state file");
+        CHECK(v3_cpp_obj(comp)->set_state(comp, (v3_bstream**)&st) == V3_OK, "set_state");
+        st.pos = 0;
+        v3_cpp_obj(ctrl)->set_component_state(ctrl, (v3_bstream**)&st);
+        std::printf("loaded saved state (%zu bytes)\n", st.data.size());
+    }
+
     // ---- open the plugin window inside a host window
     v3_plugin_view** view = v3_cpp_obj(ctrl)->create_view(ctrl, "editor");
     CHECK(view, "create_view");
@@ -466,6 +595,38 @@ int main(int argc, char** argv)
     pump(4.0);
     if (const char* shot = std::getenv("MINIHOST_SHOT")) saveWindow(win, (std::string(shot) + "2.bmp").c_str());
     std::printf("after clicking MODE: %d edit(s), param %d -> %.3f\n", gEdits.load(), gLastParam.load(), gLastValue.load());
+    const bool modeClicked = gEdits > 0 && gLastParam == 0;
+
+    // ---- drag a picture onto the window, like dropping a file from Explorer
+    bool dropped = true, saved = true;
+    if (argc > 2) {
+        OleInitialize(nullptr);
+        wchar_t wpath[MAX_PATH];
+        MultiByteToWideChar(CP_UTF8, 0, argv[2], -1, wpath, MAX_PATH);
+        DragFile file(wpath);
+        DragHand hand;
+        RECT sr;
+        GetWindowRect(child, &sr);
+        SetCursorPos((sr.left + sr.right) / 2, (sr.top + sr.bottom) / 2 - 40);
+        pump(0.3);
+        DWORD effect = 0;
+        const HRESULT hr = DoDragDrop(&file, &hand, DROPEFFECT_COPY, &effect);
+        std::printf("drag and drop: hr=0x%lx effect=%lu, param %d -> %.3f\n", (unsigned long)hr, effect,
+                    gLastParam.load(), gLastValue.load());
+        dropped = hr == DRAGDROP_S_DROP && effect == DROPEFFECT_COPY && gLastParam == 0 && gLastValue == 1.0;  // 1.0 = last mode, IMAGE
+        pump(6.0);  // trace it and show it
+        if (const char* shot = std::getenv("MINIHOST_SHOT")) saveWindow(win, (std::string(shot) + "3.bmp").c_str());
+
+        // the project should now remember the file
+        Stream st;
+        v3_cpp_obj(comp)->get_state(comp, (v3_bstream**)&st);
+        const std::string blob(st.data.begin(), st.data.end());
+        const std::string name = std::string(argv[2]).substr(std::string(argv[2]).find_last_of("\\/") + 1);
+        saved = blob.find(name) != std::string::npos;
+        if (const char* keep = std::getenv("MINIHOST_SAVE"))
+            if (FILE* f = std::fopen(keep, "wb")) { std::fwrite(blob.data(), 1, blob.size(), f); std::fclose(f); }
+        std::printf("saved state: %zu bytes, contains the file name: %s\n", blob.size(), saved ? "yes" : "NO");
+    }
 
     // ---- close the window, stop audio, unload (what FL does when you remove the plugin)
     v3_cpp_obj(view)->removed(view);
@@ -489,7 +650,9 @@ int main(int argc, char** argv)
     if (auto exitDll = (bool (*)())GetProcAddress(lib, "ExitDll")) exitDll();
     FreeLibrary(lib);
     CHECK(audioOk, "audio passthrough");
-    CHECK(gEdits > 0 && gLastParam == 0, "clicking MODE should change parameter 0");
+    CHECK(modeClicked, "clicking MODE should change parameter 0");
+    CHECK(dropped, "dropping a picture should switch to IMAGE mode");
+    CHECK(saved, "the dropped picture should be saved with the project");
     std::printf("ALL OK\n");
     return 0;
 }
